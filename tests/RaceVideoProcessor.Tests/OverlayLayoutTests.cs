@@ -105,7 +105,12 @@ public sealed class OverlayLayoutTests
             // Text reaches FFmpeg through files, never through the filter string.
             Assert.Equal("1000AAA", File.ReadAllText(Path.Combine(root, "card.txt")));
             Assert.Equal("00:22.50", File.ReadAllText(Path.Combine(root, "timing.txt")));
-            Assert.Contains("கருப்பு", File.ReadAllText(Path.Combine(root, "primary-name.txt")) + LongTamilName);
+            // The Tamil name reaches the overlay intact: what lands in the file is
+            // the name itself, or a whole-cluster prefix of it if the region forced
+            // a trim. Never mojibake, never a mid-glyph cut.
+            var writtenName = File.ReadAllText(Path.Combine(root, "primary-name.txt"));
+            Assert.True(LayoutTextFitter.ContainsTamil(writtenName));
+            Assert.StartsWith(writtenName.TrimEnd('…'), LongTamilName, StringComparison.Ordinal);
         }
         finally
         {
