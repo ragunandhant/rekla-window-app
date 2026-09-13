@@ -1,0 +1,25 @@
+<Application x:Class="RaceVideoProcessor.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:RaceVideoProcessor.App.Converters"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Theme/Palette.xaml" />
+                <ResourceDictionary Source="Theme/Controls.xaml" />
+                <ResourceDictionary Source="Theme/Components.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <conv:PageToVisibilityConverter x:Key="PageToVisibility" />
+            <conv:PageToBoolConverter x:Key="PageToBool" />
+            <conv:FilterToBoolConverter x:Key="FilterToBool" />
+            <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <conv:TextToVisibilityConverter x:Key="TextToVisibility" />
+            <conv:EntryStatusToBrushConverter x:Key="StatusBrush" />
+            <conv:BannerKindToBrushConverter x:Key="BannerBrush" />
+            <conv:ConnectedToBrushConverter x:Key="ConnectedBrush" />
+            <conv:LogLineToBrushConverter x:Key="LogBrush" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

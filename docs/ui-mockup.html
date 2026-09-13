@@ -1,0 +1,378 @@
+<title>Race Video Processor UI</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700&display=swap">
+<style>
+  /* ===========================================================
+     Mockup of the rebuilt operator screen.
+     Colours are copied from Theme/Palette.xaml; the type stack
+     mirrors the application's (Nirmala UI on Windows, Noto Sans
+     Tamil here so Tamil renders in any browser).
+     The application is a light, high-contrast tool meant to be
+     read outdoors, so this page commits to that single world.
+     =========================================================== */
+  :root{
+    --canvas:#E9EDF4; --surface:#FFFFFF; --surface-alt:#F5F8FC; --sunken:#EDF1F7;
+    --border:#BCC7D8; --border-strong:#8593AB;
+    --text:#0D1524; --muted:#41516A; --faint:#5A6980; --on-accent:#FFFFFF;
+    --accent:#0B57C8; --accent-dark:#083F92;
+    --success:#0A7A3D; --warning:#8A5200; --danger:#B3261E; --neutral:#41516A;
+    --accent-soft:#DEEAFB; --success-soft:#DCF2E4; --warning-soft:#FBEDD6;
+    --danger-soft:#FADEDC; --neutral-soft:#E3E8F0;
+    --ui:"Nirmala UI","Noto Sans Tamil","Segoe UI",system-ui,Arial,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--canvas);color:var(--text);font-family:var(--ui);font-size:14px;
+       margin:0;padding:20px 16px 40px;-webkit-font-smoothing:antialiased}
+  .sheet{max-width:1240px;margin:0 auto}
+  .note{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin:0 0 14px;color:var(--muted);font-size:13px}
+  .note b{color:var(--text);font-size:15px;font-weight:700}
+
+  .window{border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;
+          background:var(--surface);box-shadow:0 18px 40px rgba(13,21,36,.16)}
+
+  /* ---------- title bar (native Windows chrome) ---------- */
+  .titlebar{display:flex;align-items:center;justify-content:space-between;height:34px;
+            background:var(--surface-alt);border-bottom:1px solid var(--border);padding:0 6px 0 12px}
+  .titlebar .name{font-size:12px;color:var(--muted)}
+  .winbtns{display:flex}
+  .winbtns span{width:42px;height:33px;display:grid;place-items:center;color:var(--muted);font-size:12px}
+  .winbtns span:last-child:hover{background:var(--danger);color:#fff}
+  .winbtns span:hover{background:var(--sunken)}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex;align-items:center;gap:18px;height:58px;padding:0 18px;
+          border-bottom:1px solid var(--border);background:var(--surface)}
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;
+         font-size:12px;font-weight:700;letter-spacing:.02em}
+  .b-neutral{background:var(--neutral-soft);color:var(--neutral)}
+  .b-ok{background:var(--success-soft);color:var(--success)}
+  .b-warn{background:var(--warning-soft);color:var(--warning)}
+  .b-bad{background:var(--danger-soft);color:var(--danger)}
+  .b-accent{background:var(--accent-soft);color:var(--accent)}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .label{color:var(--faint);font-size:12px;font-weight:600;letter-spacing:.05em}
+  .spacer{flex:1}
+  .tab{padding:6px 14px;border:1px solid var(--border);border-radius:999px;font-size:14px;
+       font-weight:600;color:var(--muted);background:var(--surface);cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent-dark);color:#fff}
+  .tab:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+
+  /* ---------- body ---------- */
+  .body{display:grid;grid-template-columns:360px 1fr;min-height:640px}
+  .list{border-right:1px solid var(--border);padding:16px;background:var(--surface);min-width:0}
+  .listhead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+  .listhead h2{font-size:20px;font-weight:600;margin:0}
+  .listhead span{color:var(--muted);font-size:13px}
+  .search{width:100%;padding:9px 11px;border:1px solid var(--border-strong);border-radius:6px;
+          background:var(--surface);color:var(--faint);font:14px var(--ui)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 10px}
+  .chip{padding:5px 11px;border:1px solid var(--border);border-radius:999px;font-size:13px;
+        font-weight:600;color:var(--muted);background:var(--surface);cursor:pointer}
+  .chip[aria-selected="true"]{background:var(--accent);border-color:var(--accent-dark);color:#fff}
+
+  .rows{display:flex;flex-direction:column;gap:6px}
+  .row{display:grid;grid-template-columns:5px 1fr;border:1px solid var(--border);border-radius:6px;
+       background:var(--surface);overflow:hidden;cursor:pointer}
+  .row:hover{background:var(--surface-alt);border-color:var(--border-strong)}
+  .row .mark{background:transparent}
+  .row .inner{padding:10px 12px;min-width:0}
+  .row.sel{border:2px solid var(--accent);background:var(--accent-soft)}
+  .row.sel .mark{background:var(--accent)}
+  .row .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .row .card{font-size:17px;font-weight:700}
+  .row .who{color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- workspace ---------- */
+  .work{padding:18px 20px;min-width:0;background:var(--canvas)}
+  .wshead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  .wshead .card{font-size:32px;font-weight:700;line-height:1.1}
+  .wshead .who{font-size:20px;font-weight:600;color:var(--muted);margin-top:4px}
+
+  .banner{display:flex;align-items:center;gap:14px;margin-top:16px;padding:13px 16px;border-radius:6px;
+          border:1px solid var(--success);background:var(--success-soft);color:var(--success);font-weight:600}
+  .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px;align-items:start}
+  .card-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px}
+  .card-box + .card-box{margin-top:16px}
+  .rule{height:1px;background:var(--border);margin:14px 0}
+  .fields{display:grid;grid-template-columns:140px 1fr;row-gap:13px;column-gap:12px}
+  .fields .k{color:var(--text);font-weight:600}
+  .fields .v{color:var(--text)}
+  .fields .strong{font-weight:700;font-size:16px}
+  .btn{display:inline-block;padding:9px 15px;border-radius:6px;background:var(--accent);
+       color:#fff;border:1px solid var(--accent-dark);font-weight:600;font-size:14px}
+  .btn.lg{padding:12px 24px;font-size:16px}
+  .btn.sec{background:var(--surface);color:var(--text);border-color:var(--border-strong)}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.off{background:var(--sunken);color:var(--faint);border-color:var(--border)}
+  .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  .why{color:var(--warning);font-weight:600;font-size:13px;margin-top:8px}
+  .help{color:var(--muted);font-size:13px;margin-top:7px}
+  .mono{font-family:var(--mono);font-size:13px;word-break:break-all;color:var(--muted)}
+  .pct{font-size:26px;font-weight:700;margin-top:12px}
+  .track{height:14px;border:1px solid var(--border);border-radius:999px;background:var(--sunken);overflow:hidden;margin-top:10px}
+  .fill{height:100%;background:var(--accent)}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+  .pair .n{font-size:18px;font-weight:600;margin-top:5px}
+
+  /* ---------- status bar ---------- */
+  .statusbar{display:flex;align-items:center;gap:24px;height:34px;padding:0 18px;
+             border-top:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:13px}
+
+  /* ---------- scoreboard preview ---------- */
+  .scorewrap{margin-top:26px}
+  .frame{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;
+         border:1px solid var(--border-strong);
+         background:linear-gradient(160deg,#6E7F53 0%,#8A9A63 42%,#C2B184 72%,#A8935F 100%)}
+  .frame .hint{position:absolute;top:14px;left:16px;color:rgba(255,255,255,.82);font-size:13px;
+               text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .lower{position:absolute;left:3%;right:3%;bottom:4.2%;height:11.2%;min-height:64px;
+         background:rgba(10,16,32,.88);box-shadow:0 4px 14px rgba(0,0,0,.4);display:grid;
+         grid-template-columns:1fr 22% 1fr;align-items:stretch}
+  .lower::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:#E3B23C}
+  .lower .side{padding:10px 18px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .lower .side.r{align-items:flex-end;text-align:right}
+  .lower .mini{color:#E3B23C;font-size:11px;font-weight:700;letter-spacing:.08em}
+  .lower .nm{color:#fff;font-size:20px;font-weight:600;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .lower .lc{color:rgba(255,255,255,.74);font-size:14px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .plate{background:#E3B23C;margin:8px 10px;display:flex;flex-direction:column;
+         align-items:center;justify-content:center;border-radius:2px}
+  .plate .mini{color:rgba(10,16,32,.72);font-size:11px;font-weight:700;letter-spacing:.08em}
+  .plate .no{color:#0A1020;font-size:26px;font-weight:700;line-height:1.1}
+  .divider{position:absolute;top:22%;height:56%;width:1px;background:rgba(255,255,255,.18)}
+  .plaque{position:absolute;left:33%;right:33%;top:41%;background:rgba(10,16,32,.88);
+          text-align:center;padding:14px 10px 18px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+  .plaque::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:#E3B23C}
+  .plaque .mini{color:#E3B23C;font-size:11px;font-weight:700;letter-spacing:.08em}
+  .plaque .t{color:#fff;font-size:38px;font-weight:700;line-height:1.15}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  .cap{color:var(--muted);font-size:13px;margin:8px 0 0}
+
+  @media (max-width:980px){
+    .body{grid-template-columns:1fr}
+    .list{border-right:0;border-bottom:1px solid var(--border)}
+    .cols,.two,.pair{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="sheet">
+  <p class="note">
+    <b>Race Video Processor</b>
+    <span>Static mockup of the rebuilt interface — not a screenshot of a running build.</span>
+  </p>
+
+  <div class="window">
+    <div class="titlebar">
+      <span class="name">Race Video Processor</span>
+      <span class="winbtns"><span>─</span><span>☐</span><span>✕</span></span>
+    </div>
+
+    <div class="topbar">
+      <strong style="font-size:16px">RACE VIDEO PROCESSOR</strong>
+      <span class="badge b-neutral">REAL API</span>
+      <span><span class="dot" style="background:var(--success)"></span>
+        <strong style="margin-left:7px">CONNECTED</strong></span>
+      <span class="label">Last sync</span><span style="margin-left:-12px">10:30:20</span>
+      <span class="spacer"></span>
+      <span class="tab" aria-selected="true">Work</span>
+      <span class="tab">Settings</span>
+      <span class="tab">Logs</span>
+      <span class="btn sec">POLL NOW</span>
+    </div>
+
+    <div class="body">
+      <!-- ============ entry list ============ -->
+      <div class="list">
+        <div class="listhead"><h2>ENTRIES</h2><span>6 of 12 entries</span></div>
+        <div class="search">Search card, name, location, user id…</div>
+        <div class="chips">
+          <span class="chip" aria-selected="true">All</span>
+          <span class="chip">Ready</span>
+          <span class="chip">No video</span>
+          <span class="chip">Pending</span>
+          <span class="chip">Processing</span>
+          <span class="chip">Completed</span>
+          <span class="chip">Failed</span>
+        </div>
+
+        <div class="rows">
+          <div class="row"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAA</span><span class="badge b-ok">✓ COMPLETED</span></div>
+            <div class="who">S கருப்புசாமி, கணியூர்</div></div></div>
+
+          <div class="row sel"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAB</span><span class="badge b-accent">● READY</span></div>
+            <div class="who">ராமசாமி, கோயம்புத்தூர்</div></div></div>
+
+          <div class="row"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAC</span><span class="badge b-neutral">○ NO VIDEO</span></div>
+            <div class="who">குமார், மதுரை</div></div></div>
+
+          <div class="row"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAD</span><span class="badge b-warn">◷ EXTRACTION PENDING</span></div>
+            <div class="who">முருகன், சேலம்</div></div></div>
+
+          <div class="row"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAE</span><span class="badge b-bad">✕ FAILED</span></div>
+            <div class="who">வெங்கடேஷ் ராமகுமார், திருவனந்தபுரம்</div></div></div>
+
+          <div class="row"><div class="mark"></div><div class="inner">
+            <div class="top"><span class="card">1000AAF</span><span class="badge b-warn">⚠ OUTDATED</span></div>
+            <div class="who">பழனிச்சாமி, ஈரோடு</div></div></div>
+        </div>
+      </div>
+
+      <!-- ============ workspace ============ -->
+      <div class="work">
+        <div class="wshead">
+          <div>
+            <div class="card">1000AAB</div>
+            <div class="who">ராமசாமி, கோயம்புத்தூர்</div>
+          </div>
+          <span class="badge b-accent" style="padding:6px 12px">● READY</span>
+        </div>
+
+        <div class="banner">
+          <span>1000AAA completed. Output: D:\RaceVideos\Processed\2026-08-16 06-32-38.mp4</span>
+          <span class="spacer"></span>
+          <span class="btn sec" style="padding:6px 12px">DISMISS</span>
+        </div>
+
+        <div class="cols">
+          <div>
+            <div class="card-box">
+              <div class="label">RACE DETAILS · FROM PROVIDER</div>
+              <div class="rule"></div>
+              <div class="fields">
+                <div class="k">Primary</div><div class="v">ராமசாமி, கோயம்புத்தூர்</div>
+                <div class="k">Card number</div><div class="v strong">1000AAB</div>
+                <div class="k">Secondary</div><div class="v">ரமேஷ், மதுரை</div>
+                <div class="k">Race type</div><div class="v">200 / 300</div>
+                <div class="k">Timing</div><div class="v strong">00:22.50</div>
+                <div class="k">Remote status</div><div class="v" style="font-weight:600">COMPLETED</div>
+              </div>
+            </div>
+
+            <div class="card-box">
+              <div class="label">LOCAL VIDEO · MAPPED BY YOU</div>
+              <div style="font-size:16px;font-weight:600;margin-top:12px">2026-08-16 06-32-38.mp4</div>
+              <div class="mono" style="margin-top:4px">D:\RaceVideos</div>
+              <div class="help" style="margin-top:8px">Video found</div>
+              <div class="btns">
+                <span class="btn">SELECT / CHANGE VIDEO</span>
+                <span class="btn sec">PREVIEW</span>
+                <span class="btn sec">CLEAR</span>
+              </div>
+            </div>
+
+            <div class="card-box">
+              <div class="label">PROCESSING · STARTED BY YOU</div>
+              <div class="btns">
+                <span class="btn lg">START PROCESSING</span>
+                <span class="btn sec off">RETRY / REPROCESS</span>
+              </div>
+              <div class="why">Nothing has been rendered for this entry yet.</div>
+              <div class="help">Only this entry is processed, and only when you start it.</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card-box">
+              <div class="label">RENDER</div>
+              <div style="font-size:16px;font-weight:600;margin-top:10px">Processing 1000AAA</div>
+              <div class="help" style="margin-top:4px">2026-08-16 06-32-38.mp4</div>
+              <div class="pct">62%</div>
+              <div class="track"><div class="fill" style="width:62%"></div></div>
+              <div class="pair">
+                <div><div class="label">ELAPSED</div><div class="n">00:08</div></div>
+                <div><div class="label">REMAINING</div><div class="n">00:05</div></div>
+              </div>
+              <div class="help">Rendering overlay</div>
+            </div>
+
+            <div class="card-box">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="label">OUTPUT</span>
+                <span class="badge b-neutral">Not ready</span>
+              </div>
+              <div style="font-size:16px;font-weight:600;margin-top:12px">—</div>
+              <div class="mono" style="margin-top:4px">No output yet</div>
+              <div class="btns">
+                <span class="btn sec off">OPEN OUTPUT</span>
+                <span class="btn sec">OPEN FOLDER</span>
+              </div>
+              <div class="help">No output has been produced yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span><span class="dot" style="background:var(--success);margin-right:7px"></span>CONNECTED</span>
+      <span>Processing 1000AAA</span>
+      <span>NVIDIA NVENC</span>
+      <span class="spacer"></span>
+      <span>Noto Sans Tamil (bundled)</span>
+    </div>
+  </div>
+
+  <!-- ============ scoreboard ============ -->
+  <div class="scorewrap">
+    <p class="note" style="margin-bottom:10px">
+      <b>Scoreboard</b>
+      <span>What FFmpeg burns into the video — approximated here at 16:9.</span>
+    </p>
+
+    <div class="two">
+      <div>
+        <div class="frame">
+          <div class="hint">during the race</div>
+          <div class="lower">
+            <div class="divider" style="left:39%"></div>
+            <div class="divider" style="left:61%"></div>
+            <div class="side">
+              <div class="mini">PRIMARY</div>
+              <div class="nm">ராமசாமி</div>
+              <div class="lc">கோயம்புத்தூர்</div>
+            </div>
+            <div class="plate">
+              <div class="mini">CARD</div>
+              <div class="no">1000AAB</div>
+            </div>
+            <div class="side r">
+              <div class="mini">SECONDARY</div>
+              <div class="nm">ரமேஷ்</div>
+              <div class="lc">மதுரை</div>
+            </div>
+          </div>
+        </div>
+        <p class="cap">Primary left, card plate centred, secondary right.</p>
+      </div>
+
+      <div>
+        <div class="frame">
+          <div class="hint">final 4 seconds</div>
+          <div class="plaque">
+            <div class="mini">TIMING</div>
+            <div class="t">00:22.50</div>
+          </div>
+          <div class="lower">
+            <div class="divider" style="left:39%"></div>
+            <div class="side">
+              <div class="mini">PRIMARY</div>
+              <div class="nm">S கருப்புசாமி</div>
+              <div class="lc">கணியூர்</div>
+            </div>
+            <div class="plate">
+              <div class="mini">CARD</div>
+              <div class="no">1000AAA</div>
+            </div>
+            <div class="side r"></div>
+          </div>
+        </div>
+        <p class="cap">No secondary player: the right block and its divider are omitted, and the plate stays put.</p>
+      </div>
+    </div>
+  </div>
+</div>

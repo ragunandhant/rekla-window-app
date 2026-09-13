@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.vs/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Downloaded build inputs (fetched by scripts/build-installer.ps1)
+vendor/ffmpeg/*.exe
+vendor/fonts/

@@ -1,0 +1,266 @@
+<UserControl x:Class="RaceVideoProcessor.App.Views.WorkspaceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <!-- Nothing selected yet -->
+        <TextBlock Style="{StaticResource EmptyState}" VerticalAlignment="Center"
+                   Text="Select an entry on the left to work on it.&#x0a;Entries arrive from the provider and are never processed automatically."
+                   Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}, ConverterParameter=invert}" />
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,18,22,22"
+                      Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel>
+
+                <!-- ===== Header: the card number is the entry ===== -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding SelectedEntry.CardNumber}" Style="{StaticResource Txt.Card}" />
+                        <TextBlock Text="{Binding SelectedEntry.PrimaryDisplay}" Style="{StaticResource Txt.Title}"
+                                   Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <Border Grid.Column="1" Style="{StaticResource Badge}" VerticalAlignment="Top" Padding="12,6"
+                            Background="{Binding SelectedEntry.DisplayStatus, Converter={StaticResource StatusBrush}, ConverterParameter=soft}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding SelectedEntry.StatusGlyph}" Style="{StaticResource Txt.Badge}"
+                                       Foreground="{Binding SelectedEntry.DisplayStatus, Converter={StaticResource StatusBrush}}"
+                                       Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding SelectedEntry.StatusText}" Style="{StaticResource Txt.Badge}"
+                                       Foreground="{Binding SelectedEntry.DisplayStatus, Converter={StaticResource StatusBrush}}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- ===== Inline banner: outcomes report here, not in modal dialogs ===== -->
+                <Border Margin="0,16,0,0" Padding="16,13" CornerRadius="{StaticResource Radius.Control}" BorderThickness="1"
+                        Background="{Binding BannerSeverity, Converter={StaticResource BannerBrush}, ConverterParameter=soft}"
+                        BorderBrush="{Binding BannerSeverity, Converter={StaticResource BannerBrush}}"
+                        Visibility="{Binding IsBannerVisible, Converter={StaticResource BoolToVisibility}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding BannerText}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   FontWeight="SemiBold"
+                                   Foreground="{Binding BannerSeverity, Converter={StaticResource BannerBrush}}" />
+                        <Button Grid.Column="1" Content="DISMISS" Command="{Binding DismissBannerCommand}"
+                                Style="{StaticResource Btn.Secondary}" Margin="16,0,0,0" Padding="12,6" />
+                    </Grid>
+                </Border>
+
+                <!-- ===== Font warning: Tamil will not render without a Tamil font ===== -->
+                <Border Margin="0,12,0,0" Padding="16,13" CornerRadius="{StaticResource Radius.Control}" BorderThickness="1"
+                        Background="{StaticResource WarningSoft}" BorderBrush="{StaticResource Warning}"
+                        Visibility="{Binding HasFontWarning, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="{Binding FontWarning}" TextWrapping="Wrap" FontWeight="SemiBold"
+                               Foreground="{StaticResource Warning}" />
+                </Border>
+
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.15*" MinWidth="330" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="0.85*" MinWidth="260" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- ================= Left column ================= -->
+                    <StackPanel>
+
+                        <!-- Remote information -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="RACE DETAILS · FROM PROVIDER" Style="{StaticResource Txt.Label}" />
+                                <Border Style="{StaticResource Divider}" Margin="0,12" />
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Primary" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Column="1" Text="{Binding SelectedEntry.PrimaryDisplay}"
+                                               Style="{StaticResource Txt.Body}" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="1" Text="Card number" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedEntry.CardNumber}"
+                                               FontWeight="Bold" FontSize="16" Foreground="{StaticResource Text}" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="2" Text="Secondary" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedEntry.SecondaryDisplay}"
+                                               Style="{StaticResource Txt.Body}" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="3" Text="Race type" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedEntry.RaceTypeDisplay}"
+                                               Style="{StaticResource Txt.Body}" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="4" Text="Timing" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedEntry.TimingDisplay}"
+                                               FontWeight="Bold" FontSize="16" Foreground="{StaticResource Text}" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="5" Text="Remote status" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedEntry.RemoteStatusDisplay}"
+                                               Style="{StaticResource Txt.Body}" FontWeight="SemiBold" Margin="0,8" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Local video mapping -->
+                        <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                            <StackPanel>
+                                <TextBlock Text="LOCAL VIDEO · MAPPED BY YOU" Style="{StaticResource Txt.Label}" />
+
+                                <TextBlock Text="{Binding SelectedEntry.LocalVideoFileName}" Style="{StaticResource Txt.Heading}"
+                                           Margin="0,12,0,0" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SelectedEntry.LocalVideoFolder}" Style="{StaticResource Txt.Mono}"
+                                           Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SelectedEntry.LocalVideoStatusText}" Style="{StaticResource Txt.Muted}"
+                                           Margin="0,8,0,0" />
+
+                                <WrapPanel Margin="0,16,0,0">
+                                    <Button Content="SELECT / CHANGE VIDEO" Command="{Binding SelectVideoCommand}" Margin="0,0,10,8" />
+                                    <Button Content="PREVIEW" Command="{Binding PreviewCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
+                                    <Button Content="CLEAR" Command="{Binding ClearVideoCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" />
+                                </WrapPanel>
+
+                                <TextBlock Text="{Binding PreviewBlockReason}" Style="{StaticResource BlockReason}"
+                                           Visibility="{Binding PreviewBlockReason, Converter={StaticResource TextToVisibility}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Processing -->
+                        <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                            <StackPanel>
+                                <TextBlock Text="PROCESSING · STARTED BY YOU" Style="{StaticResource Txt.Label}" />
+
+                                <WrapPanel Margin="0,14,0,0">
+                                    <Button Content="START PROCESSING" Command="{Binding StartProcessingCommand}"
+                                            Style="{StaticResource Btn.Primary}" Margin="0,0,10,8" />
+                                    <Button Content="RETRY / REPROCESS" Command="{Binding ReprocessCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
+                                    <Button Content="CANCEL RENDER" Command="{Binding CancelProcessingCommand}"
+                                            Style="{StaticResource Btn.Danger}" Margin="0,0,0,8"
+                                            Visibility="{Binding IsProcessing, Converter={StaticResource BoolToVisibility}}" />
+                                </WrapPanel>
+
+                                <TextBlock Text="{Binding StartProcessingBlockReason}" Style="{StaticResource BlockReason}"
+                                           Visibility="{Binding StartProcessingBlockReason, Converter={StaticResource TextToVisibility}}" />
+
+                                <Border Margin="0,14,0,0" Padding="14,11" CornerRadius="{StaticResource Radius.Control}"
+                                        Background="{StaticResource DangerSoft}" BorderBrush="{StaticResource Danger}" BorderThickness="1"
+                                        Visibility="{Binding SelectedEntry.HasError, Converter={StaticResource BoolToVisibility}}">
+                                    <StackPanel>
+                                        <TextBlock Text="LAST ERROR" Style="{StaticResource Txt.Label}" Foreground="{StaticResource Danger}" />
+                                        <TextBlock Text="{Binding SelectedEntry.ErrorMessage}" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource Danger}" Margin="0,6,0,0" />
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="Only this entry is processed, and only when you start it."
+                                           Style="{StaticResource FormHelp}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ================= Right column ================= -->
+                    <StackPanel Grid.Column="2">
+
+                        <!-- Live render -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="RENDER" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="{Binding ProcessingSummary}" Style="{StaticResource Txt.Heading}" Margin="0,10,0,0" />
+                                <TextBlock Text="{Binding ProcessingFile}" Style="{StaticResource Txt.Muted}"
+                                           TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
+
+                                <TextBlock Text="{Binding ProcessingPercentText}" Style="{StaticResource Txt.Display}" Margin="0,14,0,0" />
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProcessingPercent, Mode=OneWay}" Margin="0,10,0,0" />
+
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="ELAPSED" Style="{StaticResource Txt.Label}" />
+                                        <TextBlock Text="{Binding ProcessingElapsed}" FontSize="18" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Text}" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="REMAINING" Style="{StaticResource Txt.Label}" />
+                                        <TextBlock Text="{Binding ProcessingEta}" FontSize="18" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Text}" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="{Binding ProcessingStage}" Style="{StaticResource FormHelp}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Output -->
+                        <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="OUTPUT" Style="{StaticResource Txt.Label}" VerticalAlignment="Center" />
+                                    <Border Grid.Column="1" Style="{StaticResource Badge}" Background="{StaticResource NeutralSoft}">
+                                        <TextBlock Text="{Binding SelectedEntry.OutputStatusText}" Style="{StaticResource Txt.Badge}"
+                                                   Foreground="{StaticResource Neutral}" />
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="{Binding SelectedEntry.OutputFileName}" Style="{StaticResource Txt.Heading}" Margin="0,12,0,0"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SelectedEntry.OutputDisplay}" Style="{StaticResource Txt.Mono}"
+                                           Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,4,0,0" />
+
+                                <WrapPanel Margin="0,14,0,0">
+                                    <Button Content="OPEN OUTPUT" Command="{Binding OpenOutputCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,10,0" />
+                                    <Button Content="OPEN FOLDER" Command="{Binding OpenOutputFolderCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0" />
+                                </WrapPanel>
+
+                                <TextBlock Text="{Binding OpenOutputBlockReason}" Style="{StaticResource FormHelp}"
+                                           Visibility="{Binding OpenOutputBlockReason, Converter={StaticResource TextToVisibility}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Demo controls -->
+                        <Border Style="{StaticResource Card}" Margin="0,16,0,0"
+                                Visibility="{Binding IsDemoMode, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="DEMO" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="Release the next card without waiting for the demo interval."
+                                           Style="{StaticResource Txt.Muted}" Margin="0,8,0,14" />
+                                <Button Content="SIMULATE NEXT ENTRY" Command="{Binding SimulateNextEntryCommand}"
+                                        HorizontalAlignment="Stretch" Margin="0,0,0,10" />
+                                <Button Content="RESET DEMO ARRIVAL" Command="{Binding ResetDemoCommand}"
+                                        Style="{StaticResource Btn.Secondary}" HorizontalAlignment="Stretch" Margin="0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>RaceVideoProcessor</AssemblyName>
+    <RootNamespace>RaceVideoProcessor.App</RootNamespace>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>Race Video Processor</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RaceVideoProcessor.Core\RaceVideoProcessor.Core.csproj" />
+    <ProjectReference Include="..\RaceVideoProcessor.Infrastructure\RaceVideoProcessor.Infrastructure.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,319 @@
+<UserControl x:Class="RaceVideoProcessor.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,18,22,22">
+        <StackPanel MaxWidth="980" HorizontalAlignment="Left">
+
+            <TextBlock Text="Settings" Style="{StaticResource Txt.Title}" />
+            <TextBlock Text="Changes apply after SAVE SETTINGS, which also triggers an immediate poll."
+                       Style="{StaticResource Txt.Muted}" Margin="0,6,0,0" />
+
+            <!-- ===== Provider ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,18,0,0">
+                <StackPanel>
+                    <TextBlock Text="DATA SOURCE" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
+                    <Border Style="{StaticResource Divider}" />
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Provider" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <ComboBox ItemsSource="{Binding DataSourceModes}" SelectedItem="{Binding Settings.DataSourceMode}" />
+                            <TextBlock Text="Demo generates 100 cards locally, with Tamil names, and needs no network."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Race API URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.ApiUrl, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="The payload is mapped by the API adapter; no other layer knows its shape."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Polling interval" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <ComboBox ItemsSource="{Binding PollingIntervals}" SelectedItem="{Binding Settings.PollingIntervalSeconds}" />
+                            <TextBlock Text="Seconds between checks. Polling is asynchronous and never blocks the screen."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Demo entry interval" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.DemoEntryIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Seconds before the next demo card is released automatically."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Demo auto advance" Style="{StaticResource FormLabel}" />
+                        <CheckBox Grid.Column="1" IsChecked="{Binding Settings.DemoAutoAdvance}"
+                                  Content="Release the next demo card automatically" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Folders ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="FOLDERS" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
+                    <Border Style="{StaticResource Divider}" />
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Input video folder" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.InputVideoFolder, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Where the file picker opens. Videos are still chosen by you, one card at a time."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Content="OPEN" Command="{Binding OpenInputFolderCommand}"
+                                Style="{StaticResource Btn.Secondary}" Margin="12,0,0,0" VerticalAlignment="Top" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Output video folder" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.OutputVideoFolder, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Processed videos keep the original filename; only the folder changes. Created if missing."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Content="OPEN" Command="{Binding OpenOutputFolderCommand}"
+                                Style="{StaticResource Btn.Secondary}" Margin="12,0,0,0" VerticalAlignment="Top" />
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Demo video folder" Style="{StaticResource FormLabel}" />
+                        <TextBox Grid.Column="1" Text="{Binding Settings.DemoVideoFolder, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="2" Content="OPEN" Command="{Binding OpenDemoVideoFolderCommand}"
+                                Style="{StaticResource Btn.Secondary}" Margin="12,0,0,0" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Tools and encoding ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="TOOLS &amp; ENCODING" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
+                    <Border Style="{StaticResource Divider}" />
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="FFmpeg path" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.FfmpegPath, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="A bare name resolves to the bundled copy first, then PATH."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="FFprobe path" Style="{StaticResource FormLabel}" />
+                        <TextBox Grid.Column="1" Text="{Binding Settings.FfprobePath, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Video encoder" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <ComboBox ItemsSource="{Binding EncoderPreferences}" SelectedItem="{Binding Settings.EncoderPreference}" />
+                            <TextBlock Text="Auto uses NVENC where the GPU supports it and falls back to x264."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Encoding quality" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <ComboBox ItemsSource="{Binding EncodingQualities}" SelectedItem="{Binding Settings.EncodingQuality}" />
+                            <TextBlock Text="Very high favours fidelity over speed. Audio is stream-copied either way."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Overwrite outputs" Style="{StaticResource FormLabel}" />
+                        <CheckBox Grid.Column="1" IsChecked="{Binding Settings.AllowOverwriteExistingOutput}"
+                                  Content="Replace an existing processed file without asking" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Scoreboard ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="SCOREBOARD" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
+                    <Border Style="{StaticResource Divider}" />
+
+                    <Border Padding="14,11" CornerRadius="{StaticResource Radius.Control}" Margin="0,0,0,16"
+                            Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}" BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="FONT IN USE" Style="{StaticResource Txt.Label}" />
+                            <TextBlock Text="{Binding FontDisplay}" Style="{StaticResource Txt.Heading}" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding FontWarning}" Style="{StaticResource BlockReason}"
+                                       Visibility="{Binding HasFontWarning, Converter={StaticResource BoolToVisibility}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Font file override" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.FontFilePath, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Leave empty to resolve automatically: the bundled Tamil font, then a Tamil-capable Windows font such as Nirmala UI."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Timing format" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.TimingFormat, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="How the race timing is written on screen and in the video. mm:ss.ff turns 22.5 into 00:22.50."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Timing shown for" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.CompletionTimeDisplaySeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Seconds at the end of the video where the timing plaque is shown."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Text size scale" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.FontSizeScale, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Multiplier on the resolution-derived size, 0.65 to 1.75. Long Tamil names shrink to fit before they are ever shortened."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Panel colour" Style="{StaticResource FormLabel}" />
+                        <TextBox Grid.Column="1" Text="{Binding Settings.ScoreboardBackgroundColor, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Text / accent colour" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <TextBox Width="172" Text="{Binding Settings.ScoreboardTextColor, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,14,0" />
+                            <TextBox Width="172" Text="{Binding Settings.ScoreboardAccentColor, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="360" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Panel opacity" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.ScoreboardOpacity, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="0.1 to 1.0. Preview an entry to see how it reads over real footage."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Actions ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="Diagnostics run against the current values and report in the banner on the work screen."
+                               Style="{StaticResource Txt.Muted}" Margin="0,0,0,14" />
+                    <WrapPanel>
+                        <Button Content="SAVE SETTINGS" Command="{Binding SaveSettingsCommand}"
+                                Style="{StaticResource Btn.Primary}" Margin="0,0,10,8" />
+                        <Button Content="TEST API" Command="{Binding TestApiCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
+                        <Button Content="TEST FFMPEG" Command="{Binding TestFfmpegCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
+                        <Button Content="TEST NVENC" Command="{Binding TestNvencCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
