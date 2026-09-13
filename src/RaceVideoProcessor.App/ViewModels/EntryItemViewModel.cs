@@ -64,6 +64,13 @@ public sealed class EntryItemViewModel : ObservableObject
     public string PrimaryLocation => _entry.PrimaryLocation;
     public string PrimaryDisplay => _entry.PrimaryDisplay;
     public string SecondaryDisplay => _entry.SecondaryDisplay;
+    public string SecondaryName => _entry.HasSecondary ? _entry.SecondaryName!.Trim() : "—";
+    public string SecondaryLocation => _entry.HasSecondary ? (_entry.SecondaryLocation ?? string.Empty).Trim() : string.Empty;
+
+    /// <summary>The race performance time from the API <c>timings</c>, e.g. "17.88 sec". Not a date.</summary>
+    public string TimingSecondsText => _entry.TimingSeconds > 0
+        ? _entry.TimingSeconds.ToString("0.00", CultureInfo.InvariantCulture) + " sec"
+        : "—";
     public bool HasSecondary => _entry.HasSecondary;
     public string RaceTypeDisplay => _entry.RaceTypeDisplay;
     public string TimingDisplay => TimingFormatter.Format(_entry.TimingSeconds, _settings.TimingFormat);

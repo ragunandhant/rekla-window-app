@@ -24,6 +24,9 @@ public interface IVideoProcessingService
         string inputPath,
         OverlayData overlay,
         CancellationToken cancellationToken);
+
+    /// <summary>Writes one frame of a video to a PNG. A negative <paramref name="seekSeconds"/> counts from the end.</summary>
+    Task<string> ExtractFrameAsync(string videoPath, double seekSeconds, string outputPng, CancellationToken cancellationToken);
 }
 
 public interface IOutputValidator

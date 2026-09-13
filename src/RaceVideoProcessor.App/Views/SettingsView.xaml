@@ -370,21 +370,13 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Margin="0,0,0,16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="230" />
-                            <ColumnDefinition Width="360" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Panel colour" Style="{StaticResource FormLabel}" />
-                        <TextBox Grid.Column="1" Text="{Binding Settings.ScoreboardBackgroundColor, UpdateSourceTrigger=PropertyChanged}" />
-                    </Grid>
 
                     <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="230" />
                             <ColumnDefinition Width="360" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Text / accent colour" Style="{StaticResource FormLabel}" />
+                        <TextBlock Text="Text / mindaro accent" Style="{StaticResource FormLabel}" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <TextBox Width="172" Text="{Binding Settings.ScoreboardTextColor, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,14,0" />
                             <TextBox Width="172" Text="{Binding Settings.ScoreboardAccentColor, UpdateSourceTrigger=PropertyChanged}" />
@@ -399,7 +391,7 @@
                         <TextBlock Text="Panel opacity" Style="{StaticResource FormLabel}" />
                         <StackPanel Grid.Column="1">
                             <TextBox Text="{Binding Settings.ScoreboardOpacity, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Text="0.1 to 1.0. Preview an entry to see how it reads over real footage."
+                            <TextBlock Text="1.0 matches the Elegant Prestige reference. Lower lets footage show through the panel."
                                        Style="{StaticResource FormHelp}" />
                         </StackPanel>
                     </Grid>

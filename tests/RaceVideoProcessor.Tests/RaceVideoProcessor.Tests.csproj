@@ -18,6 +18,9 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Fonts\**" CopyToOutputDirectory="PreserveNewest" LinkBase="Fonts" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\RaceVideoProcessor.Core\RaceVideoProcessor.Core.csproj" />
     <ProjectReference Include="..\..\src\RaceVideoProcessor.Infrastructure\RaceVideoProcessor.Infrastructure.csproj" />
   </ItemGroup>

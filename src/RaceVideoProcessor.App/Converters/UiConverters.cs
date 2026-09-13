@@ -64,6 +64,37 @@ public sealed class EqualsParameterConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+/// <summary>
+/// A file path to an image, loaded fully into memory so the file is not locked
+/// and can be deleted when the preview is replaced.
+/// </summary>
+public sealed class PathToImageConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not string path || !System.IO.File.Exists(path))
+            return null;
+        try
+        {
+            var image = new System.Windows.Media.Imaging.BitmapImage();
+            image.BeginInit();
+            image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            image.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreImageCache;
+            image.UriSource = new Uri(path, UriKind.Absolute);
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 /// <summary>Bool to visibility. Pass "invert" to reverse.</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {

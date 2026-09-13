@@ -318,6 +318,9 @@ public sealed class EntryWorkflowServiceTests : IDisposable
 
         public Task<PreviewResult> GeneratePreviewAsync(string inputPath, OverlayData overlay, CancellationToken cancellationToken)
             => throw new NotSupportedException();
+
+        public Task<string> ExtractFrameAsync(string videoPath, double seekSeconds, string outputPng, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakePublisher : IMediaPublisher

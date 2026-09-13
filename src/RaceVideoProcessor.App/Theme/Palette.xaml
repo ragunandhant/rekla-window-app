@@ -91,4 +91,33 @@
     <CornerRadius x:Key="Radius.Control">6</CornerRadius>
     <CornerRadius x:Key="Radius.Pill">999</CornerRadius>
 
+    <!-- Elegant Prestige: the broadcast graphics package, shared by the video
+         scoreboard and the workspace, so both read as one visual system. -->
+    <Color x:Key="C.PrestigeDark">#031A11</Color>
+    <Color x:Key="C.Prestige">#063322</Color>
+    <Color x:Key="C.PrestigeMid">#0A442D</Color>
+    <Color x:Key="C.PrestigeLight">#0D5A3B</Color>
+    <Color x:Key="C.PrestigeEdge">#56BE8B</Color>
+    <Color x:Key="C.Mindaro">#D9F24F</Color>
+    <Color x:Key="C.PrestigeText">#F5F5ED</Color>
+    <Color x:Key="C.PrestigeSub">#D9E1D9</Color>
+    <SolidColorBrush x:Key="PrestigeDark" Color="{StaticResource C.PrestigeDark}" />
+    <SolidColorBrush x:Key="Prestige" Color="{StaticResource C.Prestige}" />
+    <SolidColorBrush x:Key="PrestigeMid" Color="{StaticResource C.PrestigeMid}" />
+    <SolidColorBrush x:Key="PrestigeLight" Color="{StaticResource C.PrestigeLight}" />
+    <SolidColorBrush x:Key="PrestigeEdge" Color="{StaticResource C.PrestigeEdge}" />
+    <SolidColorBrush x:Key="Mindaro" Color="{StaticResource C.Mindaro}" />
+    <SolidColorBrush x:Key="PrestigeText" Color="{StaticResource C.PrestigeText}" />
+    <SolidColorBrush x:Key="PrestigeSub" Color="{StaticResource C.PrestigeSub}" />
+    <LinearGradientBrush x:Key="PrestigePanel" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#0B4A31" Offset="0" />
+        <GradientStop Color="#073522" Offset="0.48" />
+        <GradientStop Color="#032016" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="MindaroLine" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#C7E947" Offset="0" />
+        <GradientStop Color="#D9F24F" Offset="0.5" />
+        <GradientStop Color="#C7E947" Offset="1" />
+    </LinearGradientBrush>
+
 </ResourceDictionary>

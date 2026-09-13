@@ -142,9 +142,9 @@ public sealed class FontResolutionTests : IDisposable
         settings.Normalize();
 
         Assert.Equal(string.Empty, settings.FontFilePath);
-        Assert.Equal("#E3B23C", settings.ScoreboardAccentColor);
-        Assert.Equal("#0A1020", settings.ScoreboardBackgroundColor);
-        Assert.Equal(0.88, settings.ScoreboardOpacity, 3);
+        Assert.Equal("#D9F24F", settings.ScoreboardAccentColor);
+        Assert.Equal("#063322", settings.ScoreboardBackgroundColor);
+        Assert.Equal(1.0, settings.ScoreboardOpacity, 3);
         Assert.Equal(AppSettings.CurrentSettingsVersion, settings.SettingsVersion);
     }
 

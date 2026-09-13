@@ -214,6 +214,39 @@
         </Setter>
     </Style>
 
+    <!-- Chips on the dark Elegant Prestige header: mindaro when selected. -->
+    <Style x:Key="PrestigeChip" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource PrestigeText}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Body}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Chrome" Background="Transparent"
+                            BorderBrush="{StaticResource PrestigeEdge}" BorderThickness="1" Padding="14,7">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PrestigeLight}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Mindaro}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Mindaro}" />
+                            <Setter Property="Foreground" Value="{StaticResource PrestigeDark}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource PrestigeText}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="PageTab" TargetType="RadioButton" BasedOn="{StaticResource Chip}">
         <Setter Property="FontSize" Value="{StaticResource Size.Body}" />
         <Setter Property="Margin" Value="0,0,8,0" />

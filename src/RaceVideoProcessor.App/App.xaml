@@ -15,6 +15,7 @@
             <conv:PageToBoolConverter x:Key="PageToBool" />
             <conv:FilterToBoolConverter x:Key="FilterToBool" />
             <conv:EqualsParameterConverter x:Key="EqualsParam" />
+            <conv:PathToImageConverter x:Key="PathToImage" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <conv:TextToVisibilityConverter x:Key="TextToVisibility" />
             <conv:EntryStatusToBrushConverter x:Key="StatusBrush" />

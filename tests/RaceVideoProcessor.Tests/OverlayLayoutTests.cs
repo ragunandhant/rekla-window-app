@@ -97,18 +97,18 @@ public sealed class OverlayLayoutTests
 
             var result = builder.Build(metadata, overlay, root);
 
-            Assert.Contains("drawbox=", result.Filter);
-            Assert.Contains("drawtext=", result.Filter);
+            Assert.Contains("overlay=", result.Filter);
+            Assert.DoesNotContain("drawtext=", result.Filter);
             // Metadata is (path, width, height, durationSeconds, frameRate, ...):
-            // a 25s clip with a 4s window puts the plaque between t=21 and the end.
-            Assert.Contains("between(t,21,26)", result.Filter);
-            // Text reaches FFmpeg through files, never through the filter string.
-            Assert.Equal("1000AAA", File.ReadAllText(Path.Combine(root, "card.txt")));
-            Assert.Equal("00:22.50", File.ReadAllText(Path.Combine(root, "timing.txt")));
-            // The Tamil name reaches the overlay intact: what lands in the file is
-            // the name itself, or a whole-cluster prefix of it if the region forced
-            // a trim. Never mojibake, never a mid-glyph cut.
-            var writtenName = File.ReadAllText(Path.Combine(root, "primary-name.txt"));
+            // a 25s clip with a 4s window shows the plaque from t=21 to the end.
+            Assert.Contains("gte(t,21)", result.Filter);
+            // Text is drawn into the plate, never passed through the filter string.
+            Assert.DoesNotContain("1000AAA", result.Filter);
+            Assert.Equal("1000AAA", result.RenderedText!["card"]);
+            Assert.Equal("00:22.50", result.RenderedText["timing"]);
+            // The Tamil name reaches the overlay intact: the name itself, or a
+            // whole-cluster prefix of it if the region forced a trim.
+            var writtenName = result.RenderedText["primary-name"];
             Assert.True(LayoutTextFitter.ContainsTamil(writtenName));
             Assert.StartsWith(writtenName.TrimEnd('…'), LongTamilName, StringComparison.Ordinal);
         }
@@ -131,8 +131,8 @@ public sealed class OverlayLayoutTests
 
             var result = builder.Build(metadata, overlay, root);
 
-            Assert.False(File.Exists(Path.Combine(root, "secondary-name.txt")));
-            Assert.DoesNotContain("label-secondary.txt", result.Filter);
+            Assert.Equal("—", result.RenderedText!["secondary-name"]);
+            Assert.False(result.RenderedText.ContainsKey("secondary-location"));
             Assert.Equal("—", result.SecondaryDisplay);
         }
         finally
@@ -148,9 +148,8 @@ public sealed class OverlayLayoutTests
         try
         {
             Directory.CreateDirectory(root);
-            var fontPath = Path.Combine(root, "latin-only.ttf");
-            File.WriteAllText(fontPath, "stub");
-            var builder = new FfmpegFilterBuilder(new AppSettings(), new StubFontResolver(fontPath, supportsTamil: false));
+            // The resolver reports no Tamil coverage; the builder must warn rather than render silently.
+            var builder = new FfmpegFilterBuilder(new AppSettings(), new StubFontResolver(StubFontResolver.TestTamilFont, supportsTamil: false));
             var metadata = new VideoMetadata("x.mp4", 1920, 1080, 25, 30, "h264", "aac", "yuv420p");
             var overlay = new OverlayData("S கருப்புசாமி", "கணியூர்", "1000AAA", null, null, "00:22.50");
 

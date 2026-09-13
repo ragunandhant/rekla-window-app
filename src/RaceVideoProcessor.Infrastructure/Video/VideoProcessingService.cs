@@ -83,7 +83,7 @@ public sealed class VideoProcessingService : IVideoProcessingService
             if (filter.Warning is not null)
                 _log.Error($"{request.CardNumber}: {filter.Warning}");
 
-            var args = BuildProcessArguments(inputFull, tempOutput, filter.Filter, useNvenc, source);
+            var args = BuildProcessArguments(inputFull, tempOutput, filter, useNvenc, source);
             var targetBitRate = _settings.MatchSourceFileSize ? EncodingBudget.TargetVideoBitRate(source) : null;
             _log.Info(targetBitRate is { } kbps
                 ? $"{request.CardNumber}: encoding at the source video bitrate, {kbps / 1000} kbps, to keep the file size " +
@@ -164,8 +164,8 @@ public sealed class VideoProcessingService : IVideoProcessingService
             var normalSeek = Math.Clamp(source.DurationSeconds * 0.25, 0, Math.Max(0, source.DurationSeconds - 0.05));
             var finalSeek = Math.Max(0, source.DurationSeconds - Math.Min(1.0, Math.Max(0.1, source.DurationSeconds * 0.1)));
 
-            await RenderPreviewFrameAsync(inputPath, normalOutput, normalSeek, normalFilter.Filter, cancellationToken).ConfigureAwait(false);
-            await RenderPreviewFrameAsync(inputPath, finalOutput, finalSeek, finalFilter.Filter, cancellationToken).ConfigureAwait(false);
+            await RenderPreviewFrameAsync(inputPath, normalOutput, normalSeek, normalFilter, cancellationToken).ConfigureAwait(false);
+            await RenderPreviewFrameAsync(inputPath, finalOutput, finalSeek, finalFilter, cancellationToken).ConfigureAwait(false);
             SafeDeleteDirectory(normalWork);
             SafeDeleteDirectory(finalWork);
             return new PreviewResult(normalOutput, finalOutput, source);
@@ -177,14 +177,11 @@ public sealed class VideoProcessingService : IVideoProcessingService
         }
     }
 
-    internal List<string> BuildProcessArguments(string input, string output, string filter, bool useNvenc, VideoMetadata source)
+    internal List<string> BuildProcessArguments(string input, string output, FilterBuildResult filter, bool useNvenc, VideoMetadata source)
     {
-        var args = new List<string>
-        {
-            "-hide_banner", "-y", "-i", input,
-            "-map", "0:v:0", "-map", "0:a?",
-            "-vf", filter
-        };
+        var args = new List<string> { "-hide_banner", "-y", "-i", input };
+        AddOverlayInputs(args, filter);
+        args.AddRange(["-filter_complex", filter.Filter, "-map", filter.OutputLabel, "-map", "0:a?"]);
 
         var veryHigh = _settings.EncodingQuality == EncodingQuality.VeryHigh;
         var target = _settings.MatchSourceFileSize ? EncodingBudget.TargetVideoBitRate(source) : null;
@@ -357,22 +354,52 @@ public sealed class VideoProcessingService : IVideoProcessingService
         string input,
         string output,
         double seekSeconds,
-        string filter,
+        FilterBuildResult filter,
         CancellationToken cancellationToken)
     {
         var ffmpeg = FfprobeService.ResolveToolPath(_settings.FfmpegPath, "ffmpeg");
-        var args = new[]
+        var args = new List<string>
         {
             "-hide_banner", "-loglevel", "error", "-y",
             "-ss", seekSeconds.ToString("0.###", CultureInfo.InvariantCulture),
-            "-i", input,
-            "-frames:v", "1",
-            "-vf", filter,
-            output
+            "-i", input
         };
+        AddOverlayInputs(args, filter);
+        args.AddRange(["-filter_complex", filter.Filter, "-map", filter.OutputLabel, "-frames:v", "1", "-update", "1", output]);
         var result = await ProcessRunner.RunCaptureAsync(ffmpeg, args, cancellationToken).ConfigureAwait(false);
         if (result.ExitCode != 0 || !File.Exists(output))
             throw new InvalidOperationException("Preview generation failed: " + ProcessRunner.Tail(result.StdErr));
+    }
+
+    private static void AddOverlayInputs(List<string> args, FilterBuildResult filter)
+    {
+        foreach (var overlay in filter.Inputs)
+        {
+            args.AddRange(overlay.InputOptions);
+            args.AddRange(["-i", overlay.Path]);
+        }
+    }
+
+    /// <summary>
+    /// One frame of an already processed video, exactly as rendered — scoreboard
+    /// and timing plaque included — for the workspace preview.
+    /// </summary>
+    public async Task<string> ExtractFrameAsync(string videoPath, double seekSeconds, string outputPng, CancellationToken cancellationToken)
+    {
+        var ffmpeg = FfprobeService.ResolveToolPath(_settings.FfmpegPath, "ffmpeg");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPng)!);
+        // A negative position counts back from the end of the file.
+        var seek = Math.Abs(seekSeconds).ToString("0.###", CultureInfo.InvariantCulture);
+        var args = new[]
+        {
+            "-hide_banner", "-loglevel", "error", "-y",
+            seekSeconds < 0 ? "-sseof" : "-ss", seekSeconds < 0 ? "-" + seek : seek,
+            "-i", videoPath, "-frames:v", "1", "-update", "1", outputPng
+        };
+        var result = await ProcessRunner.RunCaptureAsync(ffmpeg, args, cancellationToken).ConfigureAwait(false);
+        if (result.ExitCode != 0 || !File.Exists(outputPng))
+            throw new InvalidOperationException("Frame extraction failed: " + ProcessRunner.Tail(result.StdErr));
+        return outputPng;
     }
 
     private static void SafeDelete(string? path)

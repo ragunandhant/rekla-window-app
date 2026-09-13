@@ -17,4 +17,10 @@ public sealed record FontResolution(string? Path, string Name, bool SupportsTami
 public interface IFontResolver
 {
     FontResolution Resolve();
+
+    /// <summary>
+    /// A bold Latin font for the cart number and the timing value, matching the
+    /// reference design's Inter/Arial numerals. Falls back to <see cref="Resolve"/>.
+    /// </summary>
+    FontResolution ResolveNumeric() => Resolve();
 }

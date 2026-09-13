@@ -1,0 +1,4 @@
+Noto Sans Tamil — Copyright 2022 The Noto Project Authors.
+Licensed under the SIL Open Font License 1.1 (https://openfontlicense.org).
+Source: https://github.com/google/fonts/tree/main/ofl/notosanstamil
+Used only by the tests, to render the scoreboard with real Tamil shaping.

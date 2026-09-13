@@ -180,6 +180,28 @@ public sealed class FontResolver : IFontResolver
         return files.OrderBy(Priority).ThenBy(f => f, StringComparer.OrdinalIgnoreCase);
     }
 
+    private static readonly (string File, string Name)[] NumericFonts =
+    [
+        ("Inter-Bold.ttf", "Inter Bold"),
+        ("arialbd.ttf", "Arial Bold"),
+        ("segoeuib.ttf", "Segoe UI Bold")
+    ];
+
+    /// <summary>Inter Bold when bundled, else Arial Bold or Segoe UI Bold; else the Tamil font.</summary>
+    public FontResolution ResolveNumeric()
+    {
+        foreach (var directory in _bundledDirectories.Append(_systemFontsDirectory).OfType<string>())
+        {
+            foreach (var (file, name) in NumericFonts)
+            {
+                var path = Path.Combine(directory, file);
+                if (File.Exists(path))
+                    return new FontResolution(Path.GetFullPath(path), name, false, "numeric");
+            }
+        }
+        return Resolve();
+    }
+
     private static string NameOf(string path) => Path.GetFileNameWithoutExtension(path);
 
     private static IEnumerable<string> DefaultBundledDirectories()

@@ -124,19 +124,25 @@ internal sealed class StubFontResolver : IFontResolver
 {
     private readonly FontResolution _resolution;
 
-    public StubFontResolver(string? path, bool supportsTamil = true)
-        => _resolution = new FontResolution(path, "StubFont", supportsTamil, "test");
+    private readonly FontResolution? _numeric;
+
+    public StubFontResolver(string? path, bool supportsTamil = true, string? numericPath = null)
+    {
+        _resolution = new FontResolution(path, "StubFont", supportsTamil, "test");
+        _numeric = numericPath is null ? null : new FontResolution(numericPath, "StubNumeric", false, "test");
+    }
 
     public FontResolution Resolve() => _resolution;
+    public FontResolution ResolveNumeric() => _numeric ?? _resolution;
 
-    /// <summary>A resolver pointing at a real temporary file, for filter-building tests.</summary>
+    /// <summary>Noto Sans Tamil, shipped with the tests so rendering never depends on installed fonts.</summary>
+    public static string TestTamilFont => Path.Combine(AppContext.BaseDirectory, "Fonts", "NotoSansTamil.ttf");
+
+    /// <summary>A resolver pointing at the bundled test font, for filter-building tests.</summary>
     public static StubFontResolver WithTempFont(string directory)
     {
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "stub-font.ttf");
-        if (!File.Exists(path))
-            File.WriteAllText(path, "not a real font, only a path");
-        return new StubFontResolver(path);
+        return new StubFontResolver(TestTamilFont);
     }
 }
 

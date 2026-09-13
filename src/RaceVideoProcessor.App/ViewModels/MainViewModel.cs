@@ -345,6 +345,24 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string ProcessingSummary => _job is null ? "Idle" : $"{StageName(_job.Stage)} · Cart {_job.CardNumber}";
 
     /// <summary>Shown as "Current": the entry being worked on, else the selected entry.</summary>
+    /// <summary>The entry being worked on — the running job's — else the selected entry. The bottom of the workspace shows it.</summary>
+    public EntryItemViewModel? CurrentEntry => _job is not null && _job.Scope == CurrentScope
+        ? Entries.FirstOrDefault(e => string.Equals(e.EntryId, _job.EntryId, StringComparison.OrdinalIgnoreCase)) ?? SelectedEntry
+        : SelectedEntry;
+
+    public bool HasCurrentEntry => CurrentEntry is not null;
+
+    public bool IsAssigning => _job is { Stage: WorkflowStage.Assigning };
+
+    /// <summary>Upload state for the strip under the entry: live while uploading, else the entry's stored stages.</summary>
+    public string UploadStateText => _job switch
+    {
+        { Stage: WorkflowStage.Uploading } => "Uploading",
+        { Stage: WorkflowStage.Assigning } => "Assigning video to player",
+        _ when !Settings.UploadEnabled => "Upload is OFF — processed videos are not uploaded",
+        _ => CurrentEntry is null ? "—" : $"{CurrentEntry.UploadStageText} · {CurrentEntry.AssignmentStageText}"
+    };
+
     public string CurrentCardText => _job is not null ? _job.CardNumber : SelectedEntry?.CardNumber ?? "—";
 
     public string CurrentNameText => _job is not null ? _job.PrimaryName : SelectedEntry?.PrimaryName ?? string.Empty;
@@ -903,6 +921,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         RefreshWorkContext();
 
         var card = $"Cart {job.Entry.CardNumber}";
+        var processedOutput = result.State.ProcessingStatus == LocalProcessingStatus.Completed ? result.State.OutputPath : null;
         switch (result.Outcome)
         {
             case WorkflowOutcome.Completed:
@@ -925,6 +944,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
                 ShowBanner(BannerKind.Error, $"{card}: {result.Error}");
                 break;
         }
+
+        if (processedOutput is not null && !isRecovery)
+            await ShowOutputPreviewAsync(job.Entry.CardNumber, processedOutput);
 
         await TryResumeInterruptedAsync();
     }
@@ -990,27 +1012,81 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     // ---- Preview -----------------------------------------------------------
 
+    private string? _previewNormalPath;
+    private string? _previewFinalPath;
+    private string _previewCaption = "Select a video, or PREVIEW, to see the scoreboard on the footage.";
+    private bool _isPreviewBusy;
+
+    /// <summary>A frame during the race, with the scoreboard.</summary>
+    public string? PreviewNormalPath { get => _previewNormalPath; private set { if (SetProperty(ref _previewNormalPath, value)) OnPropertyChanged(nameof(HasPreview)); } }
+
+    /// <summary>A frame from the final seconds, with the scoreboard and the timing plaque.</summary>
+    public string? PreviewFinalPath { get => _previewFinalPath; private set => SetProperty(ref _previewFinalPath, value); }
+
+    public string PreviewCaption { get => _previewCaption; private set => SetProperty(ref _previewCaption, value); }
+    public bool IsPreviewBusy { get => _isPreviewBusy; private set => SetProperty(ref _isPreviewBusy, value); }
+    public bool HasPreview => PreviewNormalPath is not null;
+
+    /// <summary>Renders two frames of the selected video with the scoreboard, shown in the workspace.</summary>
     private async Task PreviewAsync()
     {
         var entry = SelectedEntry;
         if (entry?.LocalVideoPath is not string input || !File.Exists(input))
             return;
 
+        IsPreviewBusy = true;
         try
         {
             var preview = await _videoProcessing.GeneratePreviewAsync(input, ToOverlay(entry.Entry), _lifetimeCts.Token);
-            var window = new PreviewWindow(preview, entry.CardNumber)
-            {
-                Owner = Application.Current?.MainWindow
-            };
-            window.ShowDialog();
-            TryDeleteDirectory(Path.GetDirectoryName(preview.NormalPreviewPath));
+            ShowPreview(preview.NormalPreviewPath, preview.FinalPreviewPath,
+                $"Preview · Cart {entry.CardNumber} · {Path.GetFileName(input)}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _log.Error($"Cart {entry.CardNumber}: preview failed: {ex.Message}");
             ShowBanner(BannerKind.Error, $"Cart {entry.CardNumber}: preview failed. {ex.Message}");
         }
+        finally
+        {
+            IsPreviewBusy = false;
+        }
+    }
+
+    /// <summary>Two frames taken from the processed file itself: exactly what was encoded.</summary>
+    private async Task ShowOutputPreviewAsync(string cardNumber, string outputPath)
+    {
+        if (!File.Exists(outputPath))
+            return;
+
+        var directory = Path.Combine(Path.GetTempPath(), "RaceVideoProcessor", "previews", Guid.NewGuid().ToString("N"));
+        IsPreviewBusy = true;
+        try
+        {
+            var normal = await _videoProcessing.ExtractFrameAsync(outputPath,
+                -(Settings.CompletionTimeDisplaySeconds + 2), Path.Combine(directory, "normal.png"), _lifetimeCts.Token);
+            var final = await _videoProcessing.ExtractFrameAsync(outputPath, -1.0, Path.Combine(directory, "final.png"), _lifetimeCts.Token);
+            ShowPreview(normal, final, $"Processed output · Cart {cardNumber} · {Path.GetFileName(outputPath)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The output is already validated; a missing preview frame is not a failure.
+            _log.Error($"Cart {cardNumber}: could not extract preview frames: {ex.Message}");
+            TryDeleteDirectory(directory);
+        }
+        finally
+        {
+            IsPreviewBusy = false;
+        }
+    }
+
+    private void ShowPreview(string normal, string final, string caption)
+    {
+        var previous = PreviewNormalPath;
+        PreviewNormalPath = normal;
+        PreviewFinalPath = final;
+        PreviewCaption = caption;
+        if (previous is not null)
+            TryDeleteDirectory(Path.GetDirectoryName(previous));
     }
 
     // ---- Demo --------------------------------------------------------------
@@ -1133,6 +1209,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(StageText));
         OnPropertyChanged(nameof(SelectedVideoText));
         OnPropertyChanged(nameof(IsProcessingStageVisible));
+        OnPropertyChanged(nameof(CurrentEntry));
+        OnPropertyChanged(nameof(HasCurrentEntry));
+        OnPropertyChanged(nameof(IsAssigning));
+        OnPropertyChanged(nameof(UploadStateText));
         OnPropertyChanged(nameof(UploadEnabled));
         OnPropertyChanged(nameof(UploadProgressText));
         OnPropertyChanged(nameof(NextEntry));

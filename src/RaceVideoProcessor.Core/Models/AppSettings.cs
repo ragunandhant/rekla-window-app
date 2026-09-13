@@ -12,7 +12,7 @@ public sealed class AppSettings
     /// defaults, which are invisible to the operator as "defaults".
     /// Absent from settings written before versioning, which therefore read as 0.
     /// </summary>
-    public const int CurrentSettingsVersion = 3;
+    public const int CurrentSettingsVersion = 4;
 
     public const string DefaultBackendBaseUrl = "https://rekla-backend-fx7x9.ondigitalocean.app";
 
@@ -95,10 +95,10 @@ public sealed class AppSettings
     public EncodingQuality EncodingQuality { get; set; } = EncodingQuality.VeryHigh;
 
     public double FontSizeScale { get; set; } = 1.0;
-    public string ScoreboardBackgroundColor { get; set; } = "#0A1020";
-    public string ScoreboardTextColor { get; set; } = "#FFFFFF";
-    public string ScoreboardAccentColor { get; set; } = "#E3B23C";
-    public double ScoreboardOpacity { get; set; } = 0.88;
+    public string ScoreboardBackgroundColor { get; set; } = "#063322";
+    public string ScoreboardTextColor { get; set; } = "#F5F5ED";
+    public string ScoreboardAccentColor { get; set; } = "#D9F24F";
+    public double ScoreboardOpacity { get; set; } = 1.0;
     public bool AllowOverwriteExistingOutput { get; set; } = false;
 
     /// <summary>
@@ -131,9 +131,9 @@ public sealed class AppSettings
         FontSizeScale = Math.Clamp(FontSizeScale, 0.65, 1.75);
         FileSizeTolerancePercent = Math.Clamp(double.IsFinite(FileSizeTolerancePercent) ? FileSizeTolerancePercent : 10, 1, 100);
         ScoreboardOpacity = Math.Clamp(ScoreboardOpacity, 0.1, 1.0);
-        ScoreboardBackgroundColor = NormalizeHexColor(ScoreboardBackgroundColor, "#0A1020");
-        ScoreboardTextColor = NormalizeHexColor(ScoreboardTextColor, "#FFFFFF");
-        ScoreboardAccentColor = NormalizeHexColor(ScoreboardAccentColor, "#E3B23C");
+        ScoreboardBackgroundColor = NormalizeHexColor(ScoreboardBackgroundColor, "#063322");
+        ScoreboardTextColor = NormalizeHexColor(ScoreboardTextColor, "#F5F5ED");
+        ScoreboardAccentColor = NormalizeHexColor(ScoreboardAccentColor, "#D9F24F");
         if (string.IsNullOrWhiteSpace(TimingFormat))
             TimingFormat = TimingFormatter.DefaultFormat;
 
@@ -173,13 +173,16 @@ public sealed class AppSettings
         if (string.Equals(FontFilePath?.Trim(), @"C:\Windows\Fonts\segoeui.ttf", StringComparison.OrdinalIgnoreCase))
             FontFilePath = string.Empty;
 
-        // v1 scoreboard palette, superseded by the broadcast design.
-        if (string.Equals(ScoreboardAccentColor, "#21C7A8", StringComparison.OrdinalIgnoreCase))
-            ScoreboardAccentColor = "#E3B23C";
-        if (string.Equals(ScoreboardBackgroundColor, "#101725", StringComparison.OrdinalIgnoreCase))
-            ScoreboardBackgroundColor = "#0A1020";
-        if (Math.Abs(ScoreboardOpacity - 0.84) < 0.0001)
-            ScoreboardOpacity = 0.88;
+        // Earlier scoreboard palettes (v1 teal, v2–v3 gold), superseded by the
+        // Elegant Prestige design: mindaro accent, off-white text, opaque panel.
+        if (ScoreboardAccentColor?.ToUpperInvariant() is "#21C7A8" or "#E3B23C")
+            ScoreboardAccentColor = "#D9F24F";
+        if (string.Equals(ScoreboardTextColor, "#FFFFFF", StringComparison.OrdinalIgnoreCase))
+            ScoreboardTextColor = "#F5F5ED";
+        if (ScoreboardBackgroundColor?.ToUpperInvariant() is "#101725" or "#0A1020")
+            ScoreboardBackgroundColor = "#063322";
+        if (Math.Abs(ScoreboardOpacity - 0.84) < 0.0001 || Math.Abs(ScoreboardOpacity - 0.88) < 0.0001)
+            ScoreboardOpacity = 1.0;
 
         SettingsVersion = CurrentSettingsVersion;
     }

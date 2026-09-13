@@ -125,7 +125,8 @@ public sealed class SizeMatchedEncodingTests
     {
         var service = new VideoProcessingService(settings, new StubProbe(source), new NoNvenc(),
             new OutputValidator(new StubProbe(source)), new FfmpegFilterBuilder(settings, new StubFontResolver(null)), new TestLog());
-        return service.BuildProcessArguments("in.mp4", "out.mp4", "null", nvenc, source);
+        var filter = new FilterBuildResult("[0:v]null[vout]", "[vout]", [], "", "", "", "stub", null);
+        return service.BuildProcessArguments("in.mp4", "out.mp4", filter, nvenc, source);
     }
 
     private static string After(List<string> args, string flag) => args[args.IndexOf(flag) + 1];
