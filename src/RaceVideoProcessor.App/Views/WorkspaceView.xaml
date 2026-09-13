@@ -63,9 +63,9 @@
 
                 <Grid Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1.15*" MinWidth="330" />
+                        <ColumnDefinition Width="1.15*" MinWidth="210" />
                         <ColumnDefinition Width="16" />
-                        <ColumnDefinition Width="0.85*" MinWidth="260" />
+                        <ColumnDefinition Width="0.85*" MinWidth="180" />
                     </Grid.ColumnDefinitions>
 
                     <!-- ================= Left column ================= -->

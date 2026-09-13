@@ -3,12 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:RaceVideoProcessor.App.Views"
         Title="Race Video Processor"
-        Width="1500" Height="950" MinWidth="1080" MinHeight="680"
+        Width="1500" Height="950" MinWidth="900" MinHeight="560"
         Background="{StaticResource Canvas}"
         Foreground="{StaticResource Text}"
         FontFamily="{StaticResource UiFont}"
         FontSize="{StaticResource Size.Body}"
-        WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
         UseLayoutRounding="True">
 
@@ -25,31 +24,10 @@
 
         <!-- ================= Top bar ================= -->
         <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
-            <Grid Height="60" Margin="20,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <DockPanel Height="60" Margin="20,0" LastChildFill="True">
 
-                <TextBlock Text="RACE VIDEO PROCESSOR" Style="{StaticResource Txt.Heading}"
-                           VerticalAlignment="Center" Margin="0,0,20,0" />
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Style="{StaticResource Badge}" Background="{StaticResource NeutralSoft}" Margin="0,0,12,0">
-                        <TextBlock Text="{Binding ModeLabel}" Style="{StaticResource Txt.Badge}"
-                                   Foreground="{StaticResource Neutral}" />
-                    </Border>
-                    <Ellipse Style="{StaticResource Dot}" Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
-                    <TextBlock Text="{Binding ApiStatusText}" FontWeight="SemiBold" VerticalAlignment="Center"
-                               Foreground="{StaticResource Text}" Margin="0,0,20,0" />
-                    <TextBlock Text="Last sync" Style="{StaticResource Txt.Label}" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding LastSyncText}" VerticalAlignment="Center" Margin="7,0,0,0"
-                               Foreground="{StaticResource Text}" />
-                </StackPanel>
-
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Docked first, so these keep their space at any window width. -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Work"
                                  Command="{Binding NavigateCommand}" CommandParameter="Work"
                                  IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Work}" />
@@ -62,7 +40,24 @@
                     <Button Content="POLL NOW" Command="{Binding PollNowCommand}"
                             Style="{StaticResource Btn.Secondary}" Margin="10,0,0,0" />
                 </StackPanel>
-            </Grid>
+
+                <TextBlock DockPanel.Dock="Left" Text="RACE VIDEO PROCESSOR" Style="{StaticResource Txt.Heading}"
+                           VerticalAlignment="Center" Margin="0,0,18,0" />
+
+                <!-- Fills what is left; the least critical items give way first. -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ClipToBounds="True">
+                    <Border Style="{StaticResource Badge}" Background="{StaticResource NeutralSoft}" Margin="0,0,12,0">
+                        <TextBlock Text="{Binding ModeLabel}" Style="{StaticResource Txt.Badge}"
+                                   Foreground="{StaticResource Neutral}" />
+                    </Border>
+                    <Ellipse Style="{StaticResource Dot}" Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
+                    <TextBlock Text="{Binding ApiStatusText}" FontWeight="SemiBold" VerticalAlignment="Center"
+                               Foreground="{StaticResource Text}" Margin="0,0,18,0" />
+                    <TextBlock Text="Last sync" Style="{StaticResource Txt.Label}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding LastSyncText}" VerticalAlignment="Center" Margin="7,0,0,0"
+                               Foreground="{StaticResource Text}" />
+                </StackPanel>
+            </DockPanel>
         </Border>
 
         <!-- ================= Body ================= -->
@@ -71,9 +66,9 @@
             <!-- ========== Work: entry list + workspace ========== -->
             <Grid Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Work}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="400" MinWidth="320" MaxWidth="620" />
+                    <ColumnDefinition Width="370" MinWidth="250" MaxWidth="620" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" MinWidth="520" />
+                    <ColumnDefinition Width="*" MinWidth="400" />
                 </Grid.ColumnDefinitions>
 
                 <!-- Entry list. Always visible, always navigable: nothing in this
