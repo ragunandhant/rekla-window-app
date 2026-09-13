@@ -35,14 +35,49 @@ public sealed class OverlayLayoutTests
     }
 
     [Fact]
-    public void TamilIsMeasuredMoreGenerouslyThanLatin()
+    public void TamilIsMeasuredPerClusterRatherThanPerCodeUnit()
     {
-        // Tamil glyph clusters are wider, so the same character count must fit at a
-        // smaller size than Latin — otherwise Tamil overruns its region on the video.
-        var tamil = LayoutTextFitter.Fit("கருப்புசாமி", 200, 40, 10);
-        var latin = LayoutTextFitter.Fit("karuppusami", 200, 40, 10);
+        // Tamil composes a consonant with its vowel signs into one glyph, so the
+        // string is materially shorter on screen than its UTF-16 length suggests.
+        // Measuring code units treated this name as nearly twice as wide as it is
+        // and shrank or cut it needlessly.
+        Assert.Equal(19, LongTamilName.Length);
+        Assert.True(LayoutTextFitter.VisualLength(LongTamilName) < LongTamilName.Length);
+        Assert.InRange(LayoutTextFitter.VisualLength(LongTamilName), 9, 13);
+    }
+
+    [Fact]
+    public void ATamilClusterIsAllottedMoreWidthThanALatinCharacter()
+    {
+        // Same number of rendered units, so the Tamil string must end up at a
+        // smaller size: each cluster occupies close to a full em.
+        Assert.Equal(4, LayoutTextFitter.VisualLength("கணியூர்"));
+        Assert.Equal(4, LayoutTextFitter.VisualLength("abcd"));
+
+        var tamil = LayoutTextFitter.Fit("கணியூர்", maxPixelWidth: 76, preferredFontSize: 40, minFontSize: 8);
+        var latin = LayoutTextFitter.Fit("abcd", maxPixelWidth: 76, preferredFontSize: 40, minFontSize: 8);
 
         Assert.True(tamil.FontSize < latin.FontSize);
+    }
+
+    [Fact]
+    public void TruncationCutsOnClusterBoundariesAndNeverMidGlyph()
+    {
+        var fitted = LayoutTextFitter.Fit(LongTamilName, maxPixelWidth: 60, preferredFontSize: 40, minFontSize: 30);
+
+        Assert.True(fitted.WasTruncated);
+        Assert.EndsWith("…", fitted.Text);
+
+        // The kept text must be a whole-cluster prefix of the original. A cut
+        // inside a cluster strands a combining vowel sign, which is precisely how
+        // overlay text ends up rendering as broken characters.
+        var body = fitted.Text[..^1];
+        var keptClusters = LayoutTextFitter.VisualLength(body);
+        var expectedPrefix = new System.Globalization.StringInfo(LongTamilName)
+            .SubstringByTextElements(0, keptClusters)
+            .TrimEnd();
+
+        Assert.Equal(expectedPrefix, body);
     }
 
     [Theory]
@@ -64,8 +99,9 @@ public sealed class OverlayLayoutTests
 
             Assert.Contains("drawbox=", result.Filter);
             Assert.Contains("drawtext=", result.Filter);
-            // The timing plaque appears only in the final seconds of the clip.
-            Assert.Contains("between(t,26,31)", result.Filter);
+            // Metadata is (path, width, height, durationSeconds, frameRate, ...):
+            // a 25s clip with a 4s window puts the plaque between t=21 and the end.
+            Assert.Contains("between(t,21,26)", result.Filter);
             // Text reaches FFmpeg through files, never through the filter string.
             Assert.Equal("1000AAA", File.ReadAllText(Path.Combine(root, "card.txt")));
             Assert.Equal("00:22.50", File.ReadAllText(Path.Combine(root, "timing.txt")));

@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace RaceVideoProcessor.Core.Services;
 
 /// <summary>Text after fitting: possibly shrunk, possibly ellipsized.</summary>
@@ -7,19 +9,26 @@ public sealed record FittedText(string Text, int FontSize, bool WasTruncated);
 /// Fits scoreboard text into a fixed pixel region.
 ///
 /// The scoreboard allocates left / centre / right regions, so overlong text must
-/// never cross into the card-number block. Fitting reduces the font size first
+/// never cross into the card-number plate. Fitting reduces the font size first
 /// (down to a floor) and only ellipsizes when even the smallest size overflows —
-/// shrinking keeps more of a long Tamil name readable than truncating it does.
+/// shrinking keeps a long Tamil name readable, truncating loses the name.
+///
+/// Width is measured in *text elements* (grapheme clusters), not UTF-16 code
+/// units. "வெங்கடேஷ் ராமகுமார்" is 19 code units but only 9 clusters on screen,
+/// because Tamil composes each consonant with its vowel signs into one glyph.
+/// Counting code units would treat that name as twice as wide as it is and
+/// shrink or cut it needlessly. For the same reason, truncation cuts on cluster
+/// boundaries: slicing mid-cluster would strand a vowel sign and render broken.
 /// </summary>
 public static class LayoutTextFitter
 {
     /// <summary>
-    /// Average glyph advance as a fraction of font size. Tamil composes base
-    /// glyphs with vowel signs and runs visually wider per character than Latin,
-    /// so it gets a larger factor; mixed text takes the safer (wider) value.
+    /// Average advance per text element as a fraction of font size. A Tamil
+    /// cluster carries a base consonant plus its vowel signs and occupies close
+    /// to a full em, where Latin averages near half of one.
     /// </summary>
     private const double LatinFactor = 0.55;
-    private const double TamilFactor = 0.72;
+    private const double TamilFactor = 0.95;
 
     private const char TamilBlockStart = '஀';
     private const char TamilBlockEnd = '௿';
@@ -31,22 +40,26 @@ public static class LayoutTextFitter
             return new FittedText(string.Empty, preferredFontSize, false);
 
         maxPixelWidth = Math.Max(24, maxPixelWidth);
-        minFontSize = Math.Clamp(minFontSize, 8, preferredFontSize);
+        minFontSize = Math.Clamp(minFontSize, 8, Math.Max(8, preferredFontSize));
         var factor = WidthFactor(text);
+        var elements = VisualLength(text);
 
         for (var size = preferredFontSize; size >= minFontSize; size--)
         {
-            if (EstimateWidth(text, size, factor) <= maxPixelWidth)
+            if (elements * size * factor <= maxPixelWidth)
                 return new FittedText(text, size, false);
         }
 
-        // Still too wide at the smallest permitted size: ellipsize at that size.
-        var charWidth = Math.Max(1.0, minFontSize * factor);
-        var maxChars = Math.Max(2, (int)Math.Floor(maxPixelWidth / charWidth));
-        if (text.Length <= maxChars)
+        // Still too wide at the smallest permitted size: ellipsize, on cluster
+        // boundaries, at that size.
+        var elementWidth = Math.Max(1.0, minFontSize * factor);
+        var maxElements = Math.Max(2, (int)Math.Floor(maxPixelWidth / elementWidth));
+        if (elements <= maxElements)
             return new FittedText(text, minFontSize, false);
 
-        return new FittedText(text[..Math.Max(1, maxChars - 1)].TrimEnd() + "…", minFontSize, true);
+        var keep = Math.Clamp(maxElements - 1, 1, elements);
+        var truncated = new StringInfo(text).SubstringByTextElements(0, keep).TrimEnd();
+        return new FittedText(truncated + "…", minFontSize, true);
     }
 
     /// <summary>"name, location" — the single display format used by the UI and the scoreboard.</summary>
@@ -58,8 +71,9 @@ public static class LayoutTextFitter
         return l.Length == 0 ? n : $"{n}, {l}";
     }
 
-    private static double EstimateWidth(string text, int fontSize, double factor)
-        => text.Length * fontSize * factor;
+    /// <summary>Number of grapheme clusters — what a reader actually sees.</summary>
+    public static int VisualLength(string? text)
+        => string.IsNullOrEmpty(text) ? 0 : new StringInfo(text).LengthInTextElements;
 
     private static double WidthFactor(string text)
         => ContainsTamil(text) ? TamilFactor : LatinFactor;
