@@ -240,8 +240,8 @@ public sealed class FfmpegFilterBuilder
         if (tamilPresent && !font.SupportsTamil)
         {
             messages.Add(
-                $"This entry contains Tamil text but the selected font ({font.Name}) is not known to cover Tamil; " +
-                "glyphs may render as boxes. Choose a Tamil font in Settings.");
+                $"This entry contains Tamil text but the only available font ({font.Name}) has no Tamil glyphs; " +
+                "Tamil will render as boxes. Install a Tamil font or set one in Settings.");
         }
 
         if (anyTruncated)

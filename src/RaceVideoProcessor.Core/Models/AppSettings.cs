@@ -4,6 +4,17 @@ namespace RaceVideoProcessor.Core.Models;
 
 public sealed class AppSettings
 {
+    /// <summary>
+    /// Version of the stored settings shape. Settings persist across upgrades, so a
+    /// value that was only ever an old default must be migrated rather than kept:
+    /// otherwise an upgraded install keeps rendering with the previous build's
+    /// defaults, which are invisible to the operator as "defaults".
+    /// Absent from settings written before versioning, which therefore read as 0.
+    /// </summary>
+    public const int CurrentSettingsVersion = 2;
+
+    public int SettingsVersion { get; set; }
+
     public DataSourceMode DataSourceMode { get; set; } = DataSourceMode.Demo;
     public string ApiUrl { get; set; } = "https://example.com/api/race";
     public int PollingIntervalSeconds { get; set; } = 20;
@@ -54,6 +65,8 @@ public sealed class AppSettings
 
     public void Normalize()
     {
+        MigrateFromOlderVersions();
+
         PollingIntervalSeconds = PollingIntervalSeconds is 10 or 20 or 30 or 60
             ? PollingIntervalSeconds
             : 20;
@@ -75,6 +88,31 @@ public sealed class AppSettings
         // anyway; drop it and let the window centre itself.
         if (WindowLeft is { } left && !double.IsFinite(left)) WindowLeft = null;
         if (WindowTop is { } top && !double.IsFinite(top)) WindowTop = null;
+    }
+
+    /// <summary>
+    /// Replaces values that were defaults in earlier builds and are wrong now.
+    /// Only exact old defaults are touched, so anything the operator chose stays.
+    /// </summary>
+    private void MigrateFromOlderVersions()
+    {
+        if (SettingsVersion >= CurrentSettingsVersion)
+            return;
+
+        // v1 defaulted the scoreboard font to Segoe UI, which has no Tamil glyphs:
+        // every Tamil name rendered as boxes. Empty means "resolve a Tamil font".
+        if (string.Equals(FontFilePath?.Trim(), @"C:\Windows\Fonts\segoeui.ttf", StringComparison.OrdinalIgnoreCase))
+            FontFilePath = string.Empty;
+
+        // v1 scoreboard palette, superseded by the broadcast design.
+        if (string.Equals(ScoreboardAccentColor, "#21C7A8", StringComparison.OrdinalIgnoreCase))
+            ScoreboardAccentColor = "#E3B23C";
+        if (string.Equals(ScoreboardBackgroundColor, "#101725", StringComparison.OrdinalIgnoreCase))
+            ScoreboardBackgroundColor = "#0A1020";
+        if (Math.Abs(ScoreboardOpacity - 0.84) < 0.0001)
+            ScoreboardOpacity = 0.88;
+
+        SettingsVersion = CurrentSettingsVersion;
     }
 
     private static string NormalizeHexColor(string? value, string fallback)

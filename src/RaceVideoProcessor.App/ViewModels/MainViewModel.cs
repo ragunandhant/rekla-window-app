@@ -385,7 +385,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             ? "No usable font was found. Install a Tamil-capable font or set one in Settings; rendering will fail without one."
             : font.SupportsTamil
                 ? string.Empty
-                : $"{font.Name} is not known to cover Tamil. Tamil names will render as boxes in the video.";
+                : $"No installed font contains Tamil glyphs, so Tamil names would render as boxes in the video. " +
+                  "Install Nirmala UI or Noto Sans Tamil, or set a Tamil font file in Settings.";
 
         OnPropertyChanged(nameof(FontDisplay));
         OnPropertyChanged(nameof(FontWarning));
