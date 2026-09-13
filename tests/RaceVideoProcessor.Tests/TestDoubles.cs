@@ -14,20 +14,64 @@ internal sealed class TestLog : IAppLog
 
 internal sealed class InMemoryRepository : ILocalStateRepository
 {
-    public Dictionary<string, EntryLocalState> States { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<Race> Races { get; } = [];
+    public Dictionary<(string RaceId, RaceCategory Category, string EntryId), EntryLocalState> States { get; } = new();
     public AppSettings? Settings { get; set; }
     public SyncState SyncState { get; set; } = new(null, null, null);
 
+    /// <summary>Every state written, in order, for asserting stage transitions.</summary>
+    public List<EntryLocalState> Writes { get; } = [];
+
+    public static (string, RaceCategory, string) Key(RaceScope scope, string entryId)
+        => (scope.RaceId.ToUpperInvariant(), scope.Category, entryId.ToUpperInvariant());
+
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-    public Task<EntryLocalState?> GetEntryStateAsync(string entryId, CancellationToken cancellationToken = default)
-        => Task.FromResult(States.TryGetValue(entryId, out var state) ? state.Clone() : null);
-    public Task<IReadOnlyDictionary<string, EntryLocalState>> GetAllEntryStatesAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyDictionary<string, EntryLocalState>>(States.ToDictionary(k => k.Key, v => v.Value.Clone(), StringComparer.OrdinalIgnoreCase));
+
+    public Task<IReadOnlyList<Race>> GetRacesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Race>>(Races.ToList());
+
+    public Task<Race?> GetRaceAsync(string raceId, CancellationToken cancellationToken = default)
+        => Task.FromResult(Races.FirstOrDefault(r => string.Equals(r.RaceId, raceId, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<Race> AddRaceAsync(Race race, CancellationToken cancellationToken = default)
+    {
+        if (Races.Any(r => string.Equals(r.RaceId, race.RaceId, StringComparison.OrdinalIgnoreCase)))
+            throw new DuplicateRaceIdException(race.RaceId);
+        Races.Add(race);
+        return Task.FromResult(race);
+    }
+
+    public Task<bool> DeleteRaceAsync(string raceId, CancellationToken cancellationToken = default)
+    {
+        foreach (var key in States.Keys.Where(k => k.RaceId == raceId.ToUpperInvariant()).ToList())
+            States.Remove(key);
+        return Task.FromResult(Races.RemoveAll(r => string.Equals(r.RaceId, raceId, StringComparison.OrdinalIgnoreCase)) > 0);
+    }
+
+    public Task<EntryLocalState?> GetEntryStateAsync(RaceScope scope, string entryId, CancellationToken cancellationToken = default)
+        => Task.FromResult(States.TryGetValue(Key(scope, entryId), out var state) ? state.Clone() : null);
+
+    public Task<IReadOnlyDictionary<string, EntryLocalState>> GetEntryStatesAsync(RaceScope scope, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyDictionary<string, EntryLocalState>>(States.Values
+            .Where(s => string.Equals(s.RaceId, scope.RaceId, StringComparison.OrdinalIgnoreCase) && s.Category == scope.Category)
+            .ToDictionary(s => s.EntryId, s => s.Clone(), StringComparer.OrdinalIgnoreCase));
+
+    public Task<IReadOnlyList<EntryLocalState>> GetInFlightEntryStatesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<EntryLocalState>>(States.Values
+            .Where(s => s.ProcessingStatus == LocalProcessingStatus.Processing || s.UploadStatus == UploadStatus.Uploading ||
+                        s.AssignmentStatus == AssignmentStatus.Assigning)
+            .Select(s => s.Clone()).ToList());
+
+    public Task<int> CountEntryStatesAsync(string raceId, CancellationToken cancellationToken = default)
+        => Task.FromResult(States.Keys.Count(k => k.RaceId == raceId.ToUpperInvariant()));
+
     public Task UpsertEntryStateAsync(EntryLocalState state, CancellationToken cancellationToken = default)
     {
-        States[state.EntryId] = state.Clone();
+        States[Key(state.Scope, state.EntryId)] = state.Clone();
+        Writes.Add(state.Clone());
         return Task.CompletedTask;
     }
+
     public Task<AppSettings?> LoadSettingsAsync(CancellationToken cancellationToken = default) => Task.FromResult(Settings);
     public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default) { Settings = settings; return Task.CompletedTask; }
     public Task<SyncState> LoadSyncStateAsync(CancellationToken cancellationToken = default) => Task.FromResult(SyncState);
@@ -36,11 +80,16 @@ internal sealed class InMemoryRepository : ILocalStateRepository
 
 internal sealed class StaticProvider : IEntryDataProvider
 {
-    private readonly Func<CancellationToken, Task<IReadOnlyList<RaceEntry>>> _fetch;
-    public StaticProvider(IReadOnlyList<RaceEntry> entries) => _fetch = _ => Task.FromResult(entries);
-    public StaticProvider(Func<CancellationToken, Task<IReadOnlyList<RaceEntry>>> fetch) => _fetch = fetch;
+    private readonly Func<RaceScope, CancellationToken, Task<IReadOnlyList<RaceEntry>>> _fetch;
+    public StaticProvider(IReadOnlyList<RaceEntry> entries) => _fetch = (_, _) => Task.FromResult(entries);
+    public StaticProvider(Func<RaceScope, CancellationToken, Task<IReadOnlyList<RaceEntry>>> fetch) => _fetch = fetch;
     public string Name => "TEST";
-    public Task<IReadOnlyList<RaceEntry>> FetchEntriesAsync(CancellationToken cancellationToken) => _fetch(cancellationToken);
+    public List<RaceScope> Requested { get; } = [];
+    public Task<IReadOnlyList<RaceEntry>> FetchEntriesAsync(RaceScope scope, CancellationToken cancellationToken)
+    {
+        Requested.Add(scope);
+        return _fetch(scope, cancellationToken);
+    }
 }
 
 internal sealed class StaticRouter(IEntryDataProvider provider) : IEntryProviderRouter
@@ -117,8 +166,22 @@ internal static class TestEntries
             RaceTypes = ["200", "300"],
             ExtractionStatus = status,
             RemoteStatusText = status.ToString().ToLowerInvariant(),
-            PlayerId = "player-1",
+            PlayerId = "player-" + entryId,
             UserId = "REK0076",
             Marker = entryId
         };
+}
+
+internal static class TestScopes
+{
+    public static readonly RaceScope RaceA200 = new("AAA", RaceCategory.Meter200);
+    public static readonly RaceScope RaceA300 = new("AAA", RaceCategory.Meter300);
+    public static readonly RaceScope RaceB200 = new("BBB", RaceCategory.Meter200);
+
+    public static EntryLocalState State(RaceScope scope, string entryId) => new()
+    {
+        RaceId = scope.RaceId,
+        Category = scope.Category,
+        EntryId = entryId
+    };
 }

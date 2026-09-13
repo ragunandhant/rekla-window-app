@@ -15,6 +15,17 @@ public sealed class PollingCoordinator : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
     private DateTimeOffset? _lastSuccessUtc;
+    private volatile RaceScope? _scope;
+
+    /// <summary>
+    /// The race and category to poll. Null polls nothing. Each snapshot carries the
+    /// scope it was fetched for, so a result that arrives after a switch is recognisable.
+    /// </summary>
+    public RaceScope? Scope
+    {
+        get => _scope;
+        set => _scope = value;
+    }
 
     public event EventHandler<SyncSnapshot>? SnapshotUpdated;
     public event EventHandler<PollStatus>? StatusUpdated;
@@ -43,8 +54,9 @@ public sealed class PollingCoordinator : IAsyncDisposable
         _loopTask = RunLoopAsync(_cts.Token);
     }
 
+    /// <summary>Refreshes now, waiting for a poll already in flight rather than skipping.</summary>
     public Task PollNowAsync(CancellationToken cancellationToken = default)
-        => PollOnceAsync(cancellationToken);
+        => PollOnceAsync(cancellationToken, waitForRunningPoll: true);
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
@@ -63,17 +75,27 @@ public sealed class PollingCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task PollOnceAsync(CancellationToken cancellationToken)
+    private async Task PollOnceAsync(CancellationToken cancellationToken, bool waitForRunningPoll = false)
     {
-        if (!await _pollGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        if (waitForRunningPoll)
+            await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        else if (!await _pollGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
             return;
 
         var attempt = DateTimeOffset.UtcNow;
         var providerName = _router.Current.Name;
+        var scope = _scope;
+        if (scope is null)
+        {
+            _pollGate.Release();
+            StatusUpdated?.Invoke(this, new PollStatus(false, _lastSuccessUtc, null, "No race selected.", providerName));
+            return;
+        }
+
         try
         {
-            _log.Info($"{providerName} polling started.");
-            var snapshot = await _syncService.SynchronizeAsync(cancellationToken).ConfigureAwait(false);
+            _log.Info($"{providerName} player refresh started for {scope}.");
+            var snapshot = await _syncService.SynchronizeAsync(scope, cancellationToken).ConfigureAwait(false);
             _lastSuccessUtc = snapshot.SynchronizedAtUtc;
             await _repository.SaveSyncStateAsync(
                 new SyncState(attempt, _lastSuccessUtc, null), cancellationToken).ConfigureAwait(false);
@@ -89,7 +111,7 @@ public sealed class PollingCoordinator : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.Error($"{providerName} polling failed: {ex.Message}");
+            _log.Error($"{providerName} player refresh failed for {scope}: {ex.Message}");
             await _repository.SaveSyncStateAsync(
                 new SyncState(attempt, _lastSuccessUtc, ex.Message), CancellationToken.None).ConfigureAwait(false);
             StatusUpdated?.Invoke(this, new PollStatus(

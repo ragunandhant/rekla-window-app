@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RaceVideoProcessor.Core\RaceVideoProcessor.Core.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <!-- Font resolution and coverage are tested against synthetic font files. -->

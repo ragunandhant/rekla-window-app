@@ -36,7 +36,12 @@ public sealed class MockDataProvider : IEntryDataProvider, IDemoEntryController
     public string Name => "DEMO / MOCK";
     public int AvailableCount => _settings.DemoReleasedCount;
 
-    public async Task<IReadOnlyList<RaceEntry>> FetchEntriesAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Every race gets the same demo card numbers, filtered to the category's type.
+    /// That is deliberate: it shows that card 1000AAA in one race and 1000AAA in
+    /// another are separate entries with separate local state.
+    /// </summary>
+    public async Task<IReadOnlyList<RaceEntry>> FetchEntriesAsync(RaceScope scope, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -51,10 +56,13 @@ public sealed class MockDataProvider : IEntryDataProvider, IDemoEntryController
                 await _repository.SaveSettingsAsync(_settings, cancellationToken).ConfigureAwait(false);
             }
 
+            var type = scope.Category == RaceCategory.Meter300 ? "300" : "200";
             var result = new List<RaceEntry>(_settings.DemoReleasedCount);
             for (var i = 0; i < _settings.DemoReleasedCount; i++)
             {
                 var source = _entries[i];
+                if (!source.RaceTypes.Contains(type))
+                    continue;
 
                 // Every 10th demo entry spends one poll in NOT_COMPLETED, then updates
                 // to COMPLETED. This exercises remote-status changes without blocking
@@ -180,9 +188,11 @@ public sealed class MockDataProvider : IEntryDataProvider, IDemoEntryController
                 RaceTypes = types,
                 ExtractionStatus = RemoteExtractionStatus.Completed,
                 RemoteStatusText = "completed",
-                VideoLink = $"https://example.invalid/namadhu-rekla/demo-{i + 1:000}.mp4",
+                // Most demo players have no video yet; every 8th already has one, which
+                // exercises the replace-existing-video confirmation.
+                VideoLink = i % 8 == 7 ? $"https://demo.invalid/uploads/existing-{i + 1:000}.mp4" : null,
                 IsVideoEnabled = true,
-                RaceDateUtc = new DateTimeOffset(2026, 8, 16, 1, 2, 52, TimeSpan.Zero).AddMinutes(i * 4),
+                EntryDateUtc = new DateTimeOffset(2026, 8, 16, 1, 2, 52, TimeSpan.Zero).AddMinutes(i * 4),
                 PlayerId = $"demo-player-{i + 1:000}",
                 UserId = $"REK{i + 1:0000}",
                 Marker = $"demo-marker-{i + 1:000}"

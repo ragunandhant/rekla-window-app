@@ -74,7 +74,7 @@ RaceEntry
     RaceTypes       // distinct player.raceId[].types, e.g. ["200","300"]
     ExtractionStatus / RemoteStatusText   // from status
     VideoLink / IsVideoEnabled            // remote reference only
-    RaceDateUtc
+    EntryDateUtc
     PlayerId / UserId / Marker            // technical, diagnostics only
 ```
 
@@ -400,3 +400,42 @@ the Settings page and above the workspace.
 **Escaping**: every string reaches `drawtext` through `textfile=` pointing at a
 UTF-8 file without a BOM. No Tamil, comma, colon or quote ever passes through
 filter-string escaping, which is the usual source of mangled overlay text.
+
+
+## 13. Races, categories and the publish workflow
+
+### Race context
+
+`Race { RaceId, RaceName, RaceDate }` is stored in the `races` table (`race_id` UNIQUE, case-insensitive). The selected race and category form a `RaceScope(RaceId, Category)`, and every provider call, stored record and job carries one:
+
+```
+Race ── Race ID ──┬── 200 m → GET /v1/races/{raceId}/players/all?type=200
+                  └── 300 m → GET /v1/races/{raceId}/players/all?type=300
+```
+
+URLs come from templates in Settings (`{raceId}`, `{type}`, `{playerId}`), built by `BackendUrls`. Settings hold no Race IDs; `SelectedRaceId` only remembers which saved race was open.
+
+### Storage (schema v2)
+
+`race_entry_state` is keyed by `(race_id, race_type, entry_id)` and holds cart number, player id, marker, API date, remote video link, original and processed file, `processing_status`, `upload_status`, `uploaded_video_link`, `assignment_status`, the authentication-failure flag, error, hashes and timestamps. It references `races(race_id)`; inserts are conditional on the race existing, so a job finishing after its race was deleted cannot resurrect rows. The v1 `entry_local_state` table cannot be attributed to a race and is left untouched and unread.
+
+`DeleteRaceAsync` deletes the race's entry rows and the race row in one transaction and rolls back on any failure.
+
+### Pipeline
+
+`EntryWorkflowService.RunAsync(job, state)` runs processing → upload → assignment, persisting each stage as it starts and ends and skipping completed stages:
+
+| Stored state | Next run does |
+|---|---|
+| no validated output | process |
+| processed, upload failed / not started | upload the existing processed file |
+| uploaded, assignment failed / not started | PATCH with the stored link only |
+| upload OFF | stop after processing (`UploadStatus.Disabled`) |
+
+Cancellation during processing → `Cancelled`, no upload. Failures are returned, never thrown. `OverallStatus` is derived from the three stage statuses.
+
+`WorkflowRecovery` runs at startup: a stored *Processing* becomes *Failed*; *Uploading* / *Assigning* go back to *NotStarted* and are resumed automatically, one at a time, when that race and category are open and upload is ON.
+
+### Backend client
+
+`RaceBackendClient` logs in with the configured credentials, caches the bearer token, and on a 401 logs in again and repeats the identical request once (requests are rebuilt from a factory, so upload bodies are re-streamed from the file). Uploads use `ProgressFileContent`, which streams the file in 256 KB chunks and reports bytes written. In Demo mode `DemoMediaPublisher` reads the file for honest progress and returns a `demo.invalid` link without any network access.

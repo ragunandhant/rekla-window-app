@@ -34,11 +34,6 @@ public interface IOutputValidator
         CancellationToken cancellationToken);
 }
 
-public interface IApiConnectivityTester
-{
-    Task<(bool Success, string Detail)> TestAsync(string url, CancellationToken cancellationToken);
-}
-
 public interface IToolHealthService
 {
     Task<(bool Success, string Detail)> TestFfmpegAsync(CancellationToken cancellationToken);

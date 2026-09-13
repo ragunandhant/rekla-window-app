@@ -16,33 +16,38 @@ namespace RaceVideoProcessor.App.ViewModels;
 /// <summary>
 /// Drives the whole operator surface.
 ///
-/// Two rules shape this class:
-///   1. Selection is never gated. The operator can move between entries at any
-///      time, whatever state any entry is in, and each entry keeps its own
-///      mapped video, processing status, output and error.
-///   2. A processing run is bound to the entry it started on, not to "the current
-///      entry", so navigating away mid-render is safe and changes nothing.
+/// Rules that shape this class:
+///   1. Everything happens inside the selected race and category. The race
+///      supplies the one Race ID; the category only supplies the API type.
+///   2. Selecting a video starts the job: process, then upload and assign when
+///      upload is ON. There is no start button, and only one job runs at a time.
+///   3. A job captures its race, category and entry when it starts. Nothing the
+///      operator does afterwards changes what it acts on, and switching race is
+///      refused while it runs.
+///   4. Selection is never gated: the operator can look at any entry at any time.
 /// </summary>
-public sealed class MainViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ILocalStateRepository _repository;
     private readonly IDemoEntryController _demoController;
     private readonly PollingCoordinator _polling;
     private readonly IVideoProcessingService _videoProcessing;
+    private readonly EntryWorkflowService _workflow;
     private readonly IEncoderCapabilityService _encoderCapability;
-    private readonly IApiConnectivityTester _apiTester;
+    private readonly IBackendDiagnostics _backendDiagnostics;
     private readonly IToolHealthService _toolHealth;
     private readonly IFontResolver _fontResolver;
     private readonly IAppLog _log;
     private readonly CancellationTokenSource _lifetimeCts = new();
 
-    /// <summary>Cancels the running render only, leaving the application alive.</summary>
-    private CancellationTokenSource? _jobCts;
+    /// <summary>Entries already auto-resumed this session, so a failing resume is not repeated in a loop.</summary>
+    private readonly HashSet<string> _resumeAttempted = new(StringComparer.OrdinalIgnoreCase);
 
     private EntryItemViewModel? _selectedEntry;
     private AppPage _activePage = AppPage.Work;
     private string _searchText = string.Empty;
     private EntryFilter _filter = EntryFilter.All;
+    private bool _rebuildingList;
 
     private string _apiStatusText = "STARTING";
     private string _apiErrorText = string.Empty;
@@ -51,16 +56,23 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private bool _isApiConnected;
     private string _encoderDisplay = "Detecting…";
 
-    private bool _isProcessing;
-    private string _processingCardNumber = string.Empty;
+    // ---- The running job -----------------------------------------------------
+
+    private ActiveJob? _job;
+    private CancellationTokenSource? _jobCts;
     private string _processingFile = "—";
-    private string _processingStage = "Idle";
-    private double _processingPercent;
+    private double _jobPercent;
+    private bool _jobPercentKnown = true;
     private string _processingElapsed = "00:00";
     private string _processingEta = "—";
 
     private string _bannerText = string.Empty;
     private BannerKind _bannerSeverity = BannerKind.Info;
+
+    private sealed record ActiveJob(RaceScope Scope, string EntryId, string CardNumber, string PrimaryName, bool IsRecovery)
+    {
+        public WorkflowStage Stage { get; set; } = WorkflowStage.Processing;
+    }
 
     public MainViewModel(
         AppSettings settings,
@@ -68,8 +80,9 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         IDemoEntryController demoController,
         PollingCoordinator polling,
         IVideoProcessingService videoProcessing,
+        EntryWorkflowService workflow,
         IEncoderCapabilityService encoderCapability,
-        IApiConnectivityTester apiTester,
+        IBackendDiagnostics backendDiagnostics,
         IToolHealthService toolHealth,
         IFontResolver fontResolver,
         IAppLog log)
@@ -79,8 +92,9 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         _demoController = demoController;
         _polling = polling;
         _videoProcessing = videoProcessing;
+        _workflow = workflow;
         _encoderCapability = encoderCapability;
-        _apiTester = apiTester;
+        _backendDiagnostics = backendDiagnostics;
         _toolHealth = toolHealth;
         _fontResolver = fontResolver;
         _log = log;
@@ -90,22 +104,22 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         _log.LineWritten += OnLogLineWritten;
 
         SelectVideoCommand = new AsyncRelayCommand(SelectVideoAsync, () => SelectVideoBlockReason.Length == 0);
-        ClearVideoCommand = new AsyncRelayCommand(ClearVideoAsync, () => SelectedEntry?.HasLocalVideo == true && !IsProcessing);
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => PreviewBlockReason.Length == 0);
-        StartProcessingCommand = new AsyncRelayCommand(() => ProcessAsync(force: false), () => StartProcessingBlockReason.Length == 0);
-        ReprocessCommand = new AsyncRelayCommand(() => ProcessAsync(force: true), () => ReprocessBlockReason.Length == 0);
+        RetryCommand = new AsyncRelayCommand(RetryAsync, () => RetryBlockReason.Length == 0);
         CancelProcessingCommand = new RelayCommand(CancelProcessing, () => IsProcessing);
         OpenOutputCommand = new RelayCommand(OpenOutput, () => OpenOutputBlockReason.Length == 0);
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolder(Settings.OutputVideoFolder));
         OpenInputFolderCommand = new RelayCommand(() => OpenFolder(Settings.InputVideoFolder));
         OpenDemoVideoFolderCommand = new RelayCommand(() => OpenFolder(Settings.DemoVideoFolder));
-        SimulateNextEntryCommand = new AsyncRelayCommand(SimulateNextEntryAsync, () => IsDemoMode);
+        SimulateNextEntryCommand = new AsyncRelayCommand(SimulateNextEntryAsync, () => IsDemoMode && HasActiveRace);
         ResetDemoCommand = new AsyncRelayCommand(ResetDemoAsync, () => IsDemoMode);
-        PollNowCommand = new AsyncRelayCommand(() => _polling.PollNowAsync(_lifetimeCts.Token));
+        PollNowCommand = new AsyncRelayCommand(() => _polling.PollNowAsync(_lifetimeCts.Token), () => HasActiveRace);
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
-        TestApiCommand = new AsyncRelayCommand(TestApiAsync);
+        TestLoginCommand = new AsyncRelayCommand(TestLoginAsync);
         TestFfmpegCommand = new AsyncRelayCommand(TestFfmpegAsync);
         TestNvencCommand = new AsyncRelayCommand(TestNvencAsync);
+        SetCategoryCommand = new AsyncRelayCommand<string>(SetCategoryAsync);
+        SetUploadCommand = new AsyncRelayCommand<string>(SetUploadAsync);
         NavigateCommand = new RelayCommand<string>(page =>
         {
             if (Enum.TryParse<AppPage>(page, ignoreCase: true, out var parsed))
@@ -120,13 +134,15 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         DismissBannerCommand = new RelayCommand(() => BannerText = string.Empty);
         ClearLogsCommand = new RelayCommand(() => LogLines.Clear());
         OpenLogFileCommand = new RelayCommand(OpenLogFile);
+
+        InitializeRaceManagement();
     }
 
     // ---- Collections -------------------------------------------------------
 
     public AppSettings Settings { get; }
 
-    /// <summary>Everything known, in arrival order.</summary>
+    /// <summary>Entries of the selected race and category, newest API date first.</summary>
     public ObservableCollection<EntryItemViewModel> Entries { get; } = [];
 
     /// <summary>What the list actually shows after search and filter.</summary>
@@ -142,10 +158,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     // ---- Commands ----------------------------------------------------------
 
     public ICommand SelectVideoCommand { get; }
-    public ICommand ClearVideoCommand { get; }
     public ICommand PreviewCommand { get; }
-    public ICommand StartProcessingCommand { get; }
-    public ICommand ReprocessCommand { get; }
+    public ICommand RetryCommand { get; }
     public ICommand CancelProcessingCommand { get; }
     public ICommand OpenOutputCommand { get; }
     public ICommand OpenOutputFolderCommand { get; }
@@ -155,9 +169,11 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public ICommand ResetDemoCommand { get; }
     public ICommand PollNowCommand { get; }
     public ICommand SaveSettingsCommand { get; }
-    public ICommand TestApiCommand { get; }
+    public ICommand TestLoginCommand { get; }
     public ICommand TestFfmpegCommand { get; }
     public ICommand TestNvencCommand { get; }
+    public ICommand SetCategoryCommand { get; }
+    public ICommand SetUploadCommand { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SetFilterCommand { get; }
     public ICommand ClearSearchCommand { get; }
@@ -182,10 +198,14 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         get => _selectedEntry;
         set
         {
+            // Rebuilding the list briefly empties it, and the ListBox reports that
+            // as "nothing selected". That is not the operator's choice; ignore it.
+            if (_rebuildingList && value is null)
+                return;
             if (!SetProperty(ref _selectedEntry, value))
                 return;
             OnPropertyChanged(nameof(HasSelection));
-            RefreshActionAvailability();
+            RefreshWorkContext();
         }
     }
 
@@ -217,6 +237,47 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         ? $"{Entries.Count} entries"
         : $"{VisibleEntries.Count} of {Entries.Count} entries";
 
+    public string EmptyListText => !HasActiveRace
+        ? "No race selected. Open Races to create or select one."
+        : HasEntries
+            ? "No entries match. Clear the search or filter."
+            : $"No {SelectedCategoryLabel} entries yet for this race.";
+
+    // ---- Category and upload ----------------------------------------------
+
+    public RaceCategory SelectedCategory => Settings.SelectedCategory;
+    public string SelectedCategoryLabel => Settings.SelectedCategory == RaceCategory.Meter300 ? "300 Meter" : "200 Meter";
+    public bool UploadEnabled => Settings.UploadEnabled;
+
+    public RaceScope? CurrentScope => ActiveRace is null ? null : new RaceScope(ActiveRace.RaceId, Settings.SelectedCategory);
+
+    private async Task SetCategoryAsync(string? name)
+    {
+        if (!Enum.TryParse<RaceCategory>(name, ignoreCase: true, out var category) || category == Settings.SelectedCategory)
+            return;
+
+        Settings.SelectedCategory = category;
+        await _repository.SaveSettingsAsync(Settings, _lifetimeCts.Token);
+        _log.Info($"Category switched to {SelectedCategoryLabel}" + (ActiveRace is null ? "." : $" for race {ActiveRace.RaceName}."));
+        await LoadScopeAsync();
+    }
+
+    private async Task SetUploadAsync(string? value)
+    {
+        var enabled = string.Equals(value, "On", StringComparison.OrdinalIgnoreCase);
+        if (enabled == Settings.UploadEnabled)
+            return;
+
+        Settings.UploadEnabled = enabled;
+        await _repository.SaveSettingsAsync(Settings, _lifetimeCts.Token);
+        _log.Info("Upload switched " + (enabled ? "ON." : "OFF."));
+        if (IsBusy)
+            ShowBanner(BannerKind.Info, $"Upload is now {(enabled ? "ON" : "OFF")}. The job already running keeps the setting it started with.");
+        RefreshWorkContext();
+        if (enabled)
+            await TryResumeInterruptedAsync();
+    }
+
     // ---- Provider status ---------------------------------------------------
 
     public string ApiStatusText { get => _apiStatusText; private set => SetProperty(ref _apiStatusText, value); }
@@ -232,40 +293,74 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public string FontWarning { get; private set; } = string.Empty;
     public bool HasFontWarning => FontWarning.Length > 0;
 
-    // ---- Processing --------------------------------------------------------
+    // ---- Job status (top of the workspace) ---------------------------------
 
-    public bool IsProcessing
-    {
-        get => _isProcessing;
-        private set
-        {
-            if (SetProperty(ref _isProcessing, value))
-            {
-                OnPropertyChanged(nameof(ProcessingSummary));
-                RefreshActionAvailability();
-            }
-        }
-    }
+    /// <summary>A job is running: processing, uploading or assigning.</summary>
+    public bool IsBusy => _job is not null;
 
-    public string ProcessingCardNumber { get => _processingCardNumber; private set => SetProperty(ref _processingCardNumber, value); }
+    /// <summary>The running job is in its processing stage — the only stage that can be cancelled.</summary>
+    public bool IsProcessing => _job is { Stage: WorkflowStage.Processing };
+
+    public bool IsUploading => _job is { Stage: WorkflowStage.Uploading };
+
     public string ProcessingFile { get => _processingFile; private set => SetProperty(ref _processingFile, value); }
-    public string ProcessingStage { get => _processingStage; private set => SetProperty(ref _processingStage, value); }
     public string ProcessingElapsed { get => _processingElapsed; private set => SetProperty(ref _processingElapsed, value); }
     public string ProcessingEta { get => _processingEta; private set => SetProperty(ref _processingEta, value); }
 
-    public double ProcessingPercent
+    /// <summary>Progress of the running stage: FFmpeg progress while processing, bytes sent while uploading.</summary>
+    public double JobPercent
     {
-        get => _processingPercent;
+        get => _jobPercent;
         private set
         {
-            if (SetProperty(ref _processingPercent, value))
-                OnPropertyChanged(nameof(ProcessingPercentText));
+            if (SetProperty(ref _jobPercent, value))
+                OnPropertyChanged(nameof(JobPercentText));
         }
     }
 
-    public string ProcessingPercentText => $"{ProcessingPercent:0}%";
+    /// <summary>False when the real percentage is not available; the view shows an indeterminate bar.</summary>
+    public bool JobPercentKnown
+    {
+        get => _jobPercentKnown;
+        private set
+        {
+            if (SetProperty(ref _jobPercentKnown, value))
+                OnPropertyChanged(nameof(JobPercentText));
+        }
+    }
 
-    public string ProcessingSummary => IsProcessing ? $"Processing {ProcessingCardNumber}" : "Idle";
+    public string JobPercentText => !IsBusy ? "—" : JobPercentKnown ? $"{JobPercent:0}%" : "…";
+
+    public string ProcessingSummary => _job is null ? "Idle" : $"{StageName(_job.Stage)} · Cart {_job.CardNumber}";
+
+    /// <summary>Shown as "Current": the entry being worked on, else the selected entry.</summary>
+    public string CurrentCardText => _job is not null ? _job.CardNumber : SelectedEntry?.CardNumber ?? "—";
+
+    public string CurrentNameText => _job is not null ? _job.PrimaryName : SelectedEntry?.PrimaryName ?? string.Empty;
+
+    public string StageText => _job is not null
+        ? StageName(_job.Stage)
+        : SelectedEntry is null ? "—" : ToTitle(SelectedEntry.StatusText);
+
+    public string UploadProgressText => _job is { Stage: WorkflowStage.Uploading } ? JobPercentText : Settings.UploadEnabled ? "—" : "Off";
+
+    // ---- Next entry --------------------------------------------------------
+
+    /// <summary>
+    /// The entry that will be selected automatically once the current one
+    /// completes. Informational only; it is never selected before that.
+    /// </summary>
+    public EntryItemViewModel? NextEntry
+    {
+        get
+        {
+            var anchorId = _job is not null && _job.Scope == CurrentScope ? _job.EntryId : SelectedEntry?.EntryId;
+            var anchor = anchorId is null ? null : Entries.FirstOrDefault(e => string.Equals(e.EntryId, anchorId, StringComparison.OrdinalIgnoreCase));
+            return EntryOrdering.FindNext(Entries, anchor, e => e.IsEligibleForNext && !IsJobEntry(e));
+        }
+    }
+
+    public bool HasNextEntry => NextEntry is not null;
 
     // ---- Banner ------------------------------------------------------------
 
@@ -290,52 +385,44 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
     // ---- Why an action is unavailable --------------------------------------
 
-    public string SelectVideoBlockReason => SelectedEntry is null
-        ? "Select an entry first."
-        : IsProcessing && IsProcessingSelected ? "This entry is processing." : string.Empty;
+    public string SelectVideoBlockReason
+    {
+        get
+        {
+            if (!HasActiveRace) return "Select a race first.";
+            if (SelectedEntry is null) return "Select an entry first.";
+            if (_job is not null) return $"Cart {_job.CardNumber} is {StageName(_job.Stage).ToLowerInvariant()}. One video at a time.";
+            if (SelectedEntry.ExtractionStatus != RemoteExtractionStatus.Completed) return "This race result is not completed yet.";
+            return string.Empty;
+        }
+    }
 
     public string PreviewBlockReason
     {
         get
         {
             if (SelectedEntry is null) return "Select an entry first.";
-            if (!SelectedEntry.HasLocalVideo) return "Map a local video first.";
-            if (!SelectedEntry.LocalVideoExists) return "The mapped video file is missing.";
-            if (IsProcessing) return "Available once the current render finishes.";
+            if (!SelectedEntry.HasLocalVideo) return "Select a video first.";
+            if (!SelectedEntry.LocalVideoExists) return "The selected video file is missing.";
+            if (IsBusy) return "Available once the current job finishes.";
             return string.Empty;
         }
     }
 
-    public string StartProcessingBlockReason
+    public string RetryBlockReason
     {
         get
         {
             if (SelectedEntry is null) return "Select an entry first.";
-            if (IsProcessing) return $"{ProcessingCardNumber} is processing. One video at a time.";
-            if (SelectedEntry.ExtractionStatus != RemoteExtractionStatus.Completed) return "Remote extraction is not completed yet.";
-            if (!SelectedEntry.HasLocalVideo) return "Map a local video first.";
-            if (!SelectedEntry.LocalVideoExists) return "The mapped video file is missing.";
-            if (SelectedEntry.ProcessingStatus == LocalProcessingStatus.Completed) return "Already completed — use REPROCESS.";
-            if (SelectedEntry.ProcessingStatus == LocalProcessingStatus.Outdated) return "Output is outdated — use REPROCESS.";
+            if (_job is not null) return $"Cart {_job.CardNumber} is {StageName(_job.Stage).ToLowerInvariant()}. One job at a time.";
+            var label = SelectedEntry.RetryLabel;
+            if (label is null) return "Nothing to retry.";
+            if (label != "RETRY PROCESSING" && !Settings.UploadEnabled) return "Upload is OFF. Switch it ON to retry.";
             return string.Empty;
         }
     }
 
-    public string ReprocessBlockReason
-    {
-        get
-        {
-            if (SelectedEntry is null) return "Select an entry first.";
-            if (IsProcessing) return $"{ProcessingCardNumber} is processing. One video at a time.";
-            if (SelectedEntry.ExtractionStatus != RemoteExtractionStatus.Completed) return "Remote extraction is not completed yet.";
-            if (!SelectedEntry.HasLocalVideo) return "Map a local video first.";
-            if (!SelectedEntry.LocalVideoExists) return "The mapped video file is missing.";
-            if (SelectedEntry.ProcessingStatus is not (LocalProcessingStatus.Completed
-                or LocalProcessingStatus.Outdated or LocalProcessingStatus.Failed))
-                return "Nothing has been rendered for this entry yet.";
-            return string.Empty;
-        }
-    }
+    public string RetryLabel => SelectedEntry?.RetryLabel ?? "RETRY";
 
     public string OpenOutputBlockReason
     {
@@ -348,16 +435,14 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    private bool IsProcessingSelected =>
-        IsProcessing && SelectedEntry is not null &&
-        string.Equals(SelectedEntry.CardNumber, ProcessingCardNumber, StringComparison.Ordinal);
-
     // ---- Startup -----------------------------------------------------------
 
     public async Task InitializeAsync()
     {
         LoadRecentLogs();
         ResolveFont();
+        await RecoverInterruptedStatesAsync();
+        await LoadRacesAsync();
 
         try
         {
@@ -372,9 +457,35 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             _log.Error("Encoder detection failed: " + ex.Message);
         }
 
+        await RestoreSelectedRaceAsync();
         await _polling.StartAsync(_lifetimeCts.Token);
         OnPropertyChanged(nameof(ModeLabel));
         OnPropertyChanged(nameof(IsDemoMode));
+    }
+
+    /// <summary>
+    /// Nothing runs at startup, so any stage stored as running was interrupted by
+    /// a crash or a forced close. Make the stored state truthful before anything reads it.
+    /// </summary>
+    private async Task RecoverInterruptedStatesAsync()
+    {
+        try
+        {
+            var inFlight = await _repository.GetInFlightEntryStatesAsync(_lifetimeCts.Token);
+            foreach (var state in inFlight)
+            {
+                if (!WorkflowRecovery.RecoverInterrupted(state))
+                    continue;
+                state.UpdatedUtc = DateTimeOffset.UtcNow;
+                await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
+                _log.Info($"Recovery: [{state.Scope}] cart {state.CardNumber ?? state.EntryId} was interrupted. " +
+                          $"Processing {state.ProcessingStatus}, upload {state.UploadStatus}, assignment {state.AssignmentStatus}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error("Recovery check failed: " + ex.Message);
+        }
     }
 
     private void ResolveFont()
@@ -398,13 +509,44 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             _log.Info($"Scoreboard font: {FontDisplay}.");
     }
 
+    // ---- Loading a race and category ---------------------------------------
+
+    /// <summary>Clears the list and loads the current race and category.</summary>
+    private async Task LoadScopeAsync()
+    {
+        var scope = CurrentScope;
+        _polling.Scope = scope;
+
+        Entries.Clear();
+        _rebuildingList = false;
+        SelectedEntry = null;
+        RebuildVisibleEntries();
+        OnPropertyChanged(nameof(SelectedCategory));
+        OnPropertyChanged(nameof(SelectedCategoryLabel));
+        RefreshWorkContext();
+
+        if (scope is null)
+        {
+            ApiStatusText = "NO RACE";
+            return;
+        }
+
+        ApiStatusText = "LOADING";
+        await _polling.PollNowAsync(_lifetimeCts.Token);
+    }
+
     // ---- Polling -----------------------------------------------------------
 
     private void OnSnapshotUpdated(object? sender, SyncSnapshot snapshot)
-        => Application.Current?.Dispatcher.InvokeAsync(() => ApplySnapshot(snapshot));
+        => Application.Current?.Dispatcher.InvokeAsync(() => ApplySnapshotAsync(snapshot));
 
-    private void ApplySnapshot(SyncSnapshot snapshot)
+    private async Task ApplySnapshotAsync(SyncSnapshot snapshot)
     {
+        // A refresh that started before the race or category changed belongs to
+        // the old context. It is already stored; it just must not be shown here.
+        if (snapshot.Scope != CurrentScope)
+            return;
+
         foreach (var item in snapshot.Entries)
         {
             var existing = Entries.FirstOrDefault(x =>
@@ -412,29 +554,50 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
             if (existing is null)
             {
-                Entries.Add(new EntryItemViewModel(item.Entry, item.LocalState, Settings));
-                _log.Info($"{item.Entry.CardNumber} received.");
+                var added = new EntryItemViewModel(item.Entry, item.LocalState, Settings);
+                Entries.Insert(SortedIndexFor(added), added);
+                _log.Info($"[{snapshot.Scope}] cart {item.Entry.CardNumber} received.");
             }
             else
             {
+                var dateChanged = existing.EntryDateUtc != item.Entry.EntryDateUtc;
                 existing.UpdateRemote(item.Entry, item.LocalState);
+                if (dateChanged)
+                {
+                    Entries.Remove(existing);
+                    Entries.Insert(SortedIndexFor(existing), existing);
+                }
             }
         }
 
-        // Only ever auto-select when nothing is selected. A poll must never move
-        // the operator off the entry they are working on.
         RebuildVisibleEntries();
-        if (SelectedEntry is null)
-            SelectedEntry = VisibleEntries.FirstOrDefault() ?? Entries.FirstOrDefault();
 
-        RefreshActionAvailability();
+        // Only ever auto-select when nothing is selected. A refresh must never move
+        // the operator off the entry they are working on.
+        if (SelectedEntry is null)
+            SelectedEntry = VisibleEntries.FirstOrDefault(e => e.IsEligibleForNext) ?? VisibleEntries.FirstOrDefault();
+
+        RefreshWorkContext();
+        await TryResumeInterruptedAsync();
+    }
+
+    private int SortedIndexFor(EntryItemViewModel item)
+    {
+        for (var i = 0; i < Entries.Count; i++)
+        {
+            if (ReferenceEquals(Entries[i], item))
+                continue;
+            if (EntryOrdering.CompareNewestFirst(item.EntryDateUtc, item.CardNumber, Entries[i].EntryDateUtc, Entries[i].CardNumber) < 0)
+                return i;
+        }
+        return Entries.Count;
     }
 
     private void OnPollStatusUpdated(object? sender, PollStatus status)
         => Application.Current?.Dispatcher.InvokeAsync(() =>
         {
             IsApiConnected = status.Connected;
-            ApiStatusText = status.Connected ? "CONNECTED" : "OFFLINE";
+            ApiStatusText = !HasActiveRace ? "NO RACE" : status.Connected ? "CONNECTED" : "OFFLINE";
             ApiErrorText = status.Error ?? string.Empty;
             LastSyncText = status.LastSuccessUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "—";
             NextSyncText = status.NextSyncUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "—";
@@ -469,49 +632,90 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     {
         var previous = SelectedEntry;
 
-        VisibleEntries.Clear();
-        foreach (var entry in Entries)
+        _rebuildingList = true;
+        try
         {
-            if (!entry.MatchesSearch(SearchText))
-                continue;
-            if (!MatchesFilter(entry))
-                continue;
-            VisibleEntries.Add(entry);
+            VisibleEntries.Clear();
+            foreach (var entry in Entries)
+            {
+                if (entry.MatchesSearch(SearchText) && MatchesFilter(entry))
+                    VisibleEntries.Add(entry);
+            }
+        }
+        finally
+        {
+            _rebuildingList = false;
         }
 
         OnPropertyChanged(nameof(HasEntries));
         OnPropertyChanged(nameof(HasVisibleEntries));
         OnPropertyChanged(nameof(EntryCountSummary));
+        OnPropertyChanged(nameof(EmptyListText));
 
         // Filtering the selected entry out of view must not clear the workspace:
         // the operator keeps working on it until they pick something else.
-        if (previous is not null && !VisibleEntries.Contains(previous))
+        if (previous is not null && Entries.Contains(previous))
+        {
+            _selectedEntry = null;
             SelectedEntry = previous;
+        }
     }
 
     private bool MatchesFilter(EntryItemViewModel entry) => Filter switch
     {
         EntryFilter.All => true,
-        EntryFilter.Pending => entry.DisplayStatus is EntryDisplayStatus.ExtractionPending,
-        EntryFilter.Ready => entry.DisplayStatus is EntryDisplayStatus.Ready,
-        EntryFilter.Processing => entry.DisplayStatus is EntryDisplayStatus.Processing,
-        EntryFilter.Completed => entry.DisplayStatus is EntryDisplayStatus.Completed,
-        EntryFilter.Failed => entry.DisplayStatus is EntryDisplayStatus.Failed or EntryDisplayStatus.Outdated,
-        EntryFilter.NoVideo => entry.DisplayStatus is EntryDisplayStatus.NoVideo or EntryDisplayStatus.VideoMissing,
+        EntryFilter.Pending => entry.DisplayStatus is EntryDisplayStatus.NoVideo or EntryDisplayStatus.Ready
+            or EntryDisplayStatus.ExtractionPending or EntryDisplayStatus.VideoMissing,
+        EntryFilter.Active => entry.DisplayStatus is EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading
+            or EntryDisplayStatus.Assigning or EntryDisplayStatus.Processed,
+        EntryFilter.Completed => entry.DisplayStatus is EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo,
+        EntryFilter.Failed => entry.DisplayStatus is EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed
+            or EntryDisplayStatus.AssignmentFailed or EntryDisplayStatus.AuthenticationFailed
+            or EntryDisplayStatus.Cancelled or EntryDisplayStatus.Outdated,
         _ => true
     };
 
-    // ---- Video mapping -----------------------------------------------------
+    // ---- Select video: starts the job --------------------------------------
 
     private async Task SelectVideoAsync()
     {
         var entry = SelectedEntry;
-        if (entry is null)
+        var race = ActiveRace;
+        if (entry is null || race is null || IsBusy)
             return;
+
+        if (entry.ExtractionStatus != RemoteExtractionStatus.Completed)
+        {
+            ShowBanner(BannerKind.Warning, $"Cart {entry.CardNumber}: the race result is not completed yet, so it cannot be processed.");
+            return;
+        }
+
+        // Never silently overwrite a video that is already on the player.
+        if (entry.HasVideoLink)
+        {
+            var choice = ChoiceDialog.Show(
+                "Existing video",
+                "This entry already has a video. Replace it?",
+                $"Cart {entry.CardNumber} — {entry.PrimaryDisplay}\n\nCurrent video:\n{entry.VideoLink}",
+                "Replace processes the new video and, with upload ON, assigns it in place of the current one.",
+                new Choice("CANCEL", "cancel", IsCancel: true),
+                new Choice("SKIP", "skip"),
+                new Choice("REPLACE", "replace", ChoiceStyle.Danger));
+
+            if (choice == "skip")
+            {
+                _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: skipped; it already has a video.");
+                SelectNextEntryAfter(entry);
+                return;
+            }
+            if (choice != "replace")
+                return;
+            _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: operator chose to replace the existing video.");
+        }
 
         var dialog = new OpenFileDialog
         {
-            Title = $"Select the local video for card {entry.CardNumber}",
+            Title = $"Select the video for cart {entry.CardNumber}",
             Filter = "Video files|*.mp4;*.mkv;*.mov;*.avi;*.m4v;*.ts;*.mts;*.m2ts|All files|*.*",
             CheckFileExists = true,
             InitialDirectory = Directory.Exists(Settings.InputVideoFolder) ? Settings.InputVideoFolder : null
@@ -520,41 +724,259 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         if (dialog.ShowDialog() != true)
             return;
 
-        var state = entry.LocalState.Clone();
-        state.LocalVideoPath = dialog.FileName;
-        state.ErrorMessage = null;
-        state.ProcessingStatus = state.ProcessingStatus switch
-        {
-            LocalProcessingStatus.Completed => LocalProcessingStatus.Outdated,
-            LocalProcessingStatus.Outdated => LocalProcessingStatus.Outdated,
-            _ => LocalProcessingStatus.Ready
-        };
-        state.UpdatedUtc = DateTimeOffset.UtcNow;
+        // The file dialog is modal, but a refresh or race change could still have landed.
+        if (IsBusy || !ReferenceEquals(SelectedEntry, entry) || entry.Scope != CurrentScope)
+            return;
 
+        var input = dialog.FileName;
+        var output = OutputPathFor(race, entry.Scope, input);
+        var allowOverwrite = Settings.AllowOverwriteExistingOutput ||
+                             string.Equals(output, entry.OutputPath, StringComparison.OrdinalIgnoreCase);
+        if (File.Exists(output) && !allowOverwrite)
+        {
+            var answer = MessageBox.Show(
+                $"A processed file already exists:\n\n{output}\n\nReplace it once the new video has been processed and validated?",
+                "Output already exists", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes)
+                return;
+            allowOverwrite = true;
+        }
+
+        // A newly selected video always starts from processing, whatever happened before.
+        var state = entry.LocalState.Clone();
+        state.LocalVideoPath = input;
+        state.ProcessingStatus = LocalProcessingStatus.Ready;
+        state.UploadStatus = UploadStatus.NotStarted;
+        state.UploadedVideoLink = null;
+        state.AssignmentStatus = AssignmentStatus.NotStarted;
+        state.LastFailureWasAuthentication = false;
+        state.ErrorMessage = null;
+        state.UpdatedUtc = DateTimeOffset.UtcNow;
         await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
         entry.ReplaceLocalState(state);
-        _log.Info($"{entry.CardNumber}: video mapped to {dialog.FileName}");
-        RebuildVisibleEntries();
-        RefreshActionAvailability();
+        _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: video selected: {input}");
+
+        await RunJobAsync(entry, race, input, output, allowOverwrite, isRecovery: false);
     }
 
-    private async Task ClearVideoAsync()
+    private async Task RetryAsync()
     {
         var entry = SelectedEntry;
+        var race = ActiveRace;
+        if (entry is null || race is null || IsBusy || entry.RetryLabel is not { } label)
+            return;
+
+        _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: {label.ToLowerInvariant()} requested.");
+
+        if (label == "RETRY PROCESSING")
+        {
+            var input = entry.LocalVideoPath!;
+            var state = entry.LocalState.Clone();
+            state.ProcessingStatus = LocalProcessingStatus.Ready;
+            state.UploadStatus = UploadStatus.NotStarted;
+            state.UploadedVideoLink = null;
+            state.AssignmentStatus = AssignmentStatus.NotStarted;
+            state.ErrorMessage = null;
+            state.UpdatedUtc = DateTimeOffset.UtcNow;
+            await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
+            entry.ReplaceLocalState(state);
+            await RunJobAsync(entry, race, input, OutputPathFor(race, entry.Scope, input), allowOverwrite: true, isRecovery: false);
+            return;
+        }
+
+        // Upload or assignment: completed stages are skipped, so a failed PATCH is
+        // retried with the link already obtained, without uploading again.
+        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true, isRecovery: false);
+    }
+
+    /// <summary>
+    /// Resumes a stage that was interrupted by a crash, one entry at a time, for
+    /// the race and category on screen. Only when idle and upload is ON.
+    /// </summary>
+    private async Task TryResumeInterruptedAsync()
+    {
+        var race = ActiveRace;
+        if (IsBusy || race is null || !Settings.UploadEnabled)
+            return;
+
+        var entry = Entries.FirstOrDefault(e =>
+            WorkflowRecovery.NeedsAutomaticResume(e.LocalState, Settings.UploadEnabled) &&
+            _resumeAttempted.Add($"{e.Scope.RaceId}|{e.Scope.Category}|{e.EntryId}"));
         if (entry is null)
             return;
 
-        var state = entry.LocalState.Clone();
-        state.LocalVideoPath = null;
-        state.ProcessingStatus = LocalProcessingStatus.VideoNotSelected;
-        state.ErrorMessage = null;
-        state.UpdatedUtc = DateTimeOffset.UtcNow;
+        _log.Info($"Recovery: resuming [{entry.Scope}] cart {entry.CardNumber} from " +
+                  (entry.UploadStatus == UploadStatus.Completed ? "assignment, reusing the uploaded link." : "upload, reusing the processed file."));
+        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true, isRecovery: true);
+    }
 
-        await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
-        entry.ReplaceLocalState(state);
-        _log.Info($"{entry.CardNumber}: video mapping cleared.");
+    private async Task RunJobAsync(
+        EntryItemViewModel entry, Race race, string? input, string output, bool allowOverwrite, bool isRecovery)
+    {
+        var scope = entry.Scope;
+        var job = new WorkflowJob(
+            scope,
+            entry.Entry,
+            input,
+            output,
+            ToOverlay(entry.Entry),
+            OverlayHashCalculator.Calculate(entry.Entry),
+            allowOverwrite,
+            Settings.UploadEnabled);
+
+        _job = new ActiveJob(scope, entry.EntryId, entry.CardNumber, entry.PrimaryName, isRecovery);
+        _jobCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        ProcessingFile = Path.GetFileName(input ?? output);
+        ProcessingElapsed = "00:00";
+        ProcessingEta = "—";
+        JobPercent = 0;
+        JobPercentKnown = true;
+        RefreshWorkContext();
+
+        var loggedBucket = 0;
+        var progress = new Progress<WorkflowProgress>(p =>
+        {
+            if (_job is null)
+                return;
+
+            if (_job.Stage != p.Stage)
+            {
+                _job.Stage = p.Stage;
+                loggedBucket = 0;
+                RefreshWorkContext();
+            }
+
+            JobPercentKnown = p.Percent.HasValue;
+            JobPercent = p.Percent ?? 0;
+            OnPropertyChanged(nameof(UploadProgressText));
+
+            if (p.Processing is { } processing)
+            {
+                ProcessingElapsed = FormatShortDuration(processing.Elapsed);
+                ProcessingEta = processing.EstimatedRemaining.HasValue ? FormatShortDuration(processing.EstimatedRemaining.Value) : "—";
+            }
+
+            var bucket = Math.Min(100, (int)JobPercent / 20 * 20);
+            if (p.Percent.HasValue && bucket >= 20 && bucket > loggedBucket)
+            {
+                loggedBucket = bucket;
+                _log.Info($"[{scope}] cart {job.Entry.CardNumber} {StageName(p.Stage).ToLowerInvariant()}: {bucket}%");
+            }
+
+            FindEntry(scope, job.Entry.EntryId)?.ReplaceLocalState(p.State);
+        });
+
+        WorkflowResult result;
+        try
+        {
+            result = await _workflow.RunAsync(job, entry.LocalState, progress, _jobCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"[{scope}] cart {job.Entry.CardNumber}: unexpected job error: {ex}");
+            ShowBanner(BannerKind.Error, $"Cart {job.Entry.CardNumber}: unexpected error. {ex.Message}");
+            return;
+        }
+        finally
+        {
+            _job = null;
+            _jobCts?.Dispose();
+            _jobCts = null;
+            RefreshWorkContext();
+        }
+
+        if (_lifetimeCts.IsCancellationRequested)
+            return;
+
+        var current = FindEntry(scope, job.Entry.EntryId);
+        current?.ReplaceLocalState(result.State);
         RebuildVisibleEntries();
-        RefreshActionAvailability();
+        RefreshWorkContext();
+
+        var card = $"Cart {job.Entry.CardNumber}";
+        switch (result.Outcome)
+        {
+            case WorkflowOutcome.Completed:
+                ShowBanner(BannerKind.Success, $"{card} completed: processed, uploaded and assigned.");
+                if (!isRecovery && current is not null && scope == CurrentScope)
+                    SelectNextEntryAfter(current);
+                break;
+            case WorkflowOutcome.UploadDisabled:
+                ShowBanner(BannerKind.Success, $"{card}: Processing Completed. Upload is OFF, so nothing was uploaded or assigned.");
+                break;
+            case WorkflowOutcome.ProcessingCancelled:
+                ShowBanner(BannerKind.Info, $"{card}: Processing Cancelled. Nothing was uploaded; the original video is untouched.");
+                break;
+            case WorkflowOutcome.AuthenticationFailed:
+                ShowBanner(BannerKind.Error, $"{card}: {result.Error} Check the login email and password in Settings, then retry.");
+                break;
+            case WorkflowOutcome.Interrupted:
+                break;
+            default:
+                ShowBanner(BannerKind.Error, $"{card}: {result.Error}");
+                break;
+        }
+
+        await TryResumeInterruptedAsync();
+    }
+
+    /// <summary>
+    /// Moves to the next eligible entry of the same race and category, and waits
+    /// there: the operator must select a new video. Nothing carries over.
+    /// </summary>
+    private void SelectNextEntryAfter(EntryItemViewModel entry)
+    {
+        var next = EntryOrdering.FindNext(Entries, entry, e => e.IsEligibleForNext);
+        if (next is null)
+        {
+            ShowBanner(BannerKind.Info, $"No pending entries left in {SelectedCategoryLabel}.");
+            return;
+        }
+
+        if (!VisibleEntries.Contains(next))
+        {
+            SearchText = string.Empty;
+            Filter = EntryFilter.All;
+        }
+
+        SelectedEntry = next;
+        _log.Info($"[{next.Scope}] next entry selected: cart {next.CardNumber}. Waiting for its video.");
+    }
+
+    private void CancelProcessing()
+    {
+        if (_job is { Stage: WorkflowStage.Processing } && _jobCts is { IsCancellationRequested: false })
+        {
+            _log.Info($"[{_job.Scope}] cart {_job.CardNumber}: cancel requested.");
+            _jobCts.Cancel();
+        }
+    }
+
+    private EntryItemViewModel? FindEntry(RaceScope scope, string entryId)
+        => scope != CurrentScope
+            ? null
+            : Entries.FirstOrDefault(e => string.Equals(e.EntryId, entryId, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsJobEntry(EntryItemViewModel entry)
+        => _job is not null && _job.Scope == entry.Scope &&
+           string.Equals(_job.EntryId, entry.EntryId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Processed files are grouped per race and category, so the same file name
+    /// in two races never overwrites the other race's output.
+    /// </summary>
+    private string OutputPathFor(Race race, RaceScope scope, string input)
+    {
+        var raceFolder = SafeFolderName($"{race.RaceDate:yyyy-MM-dd} {race.RaceName} [{race.RaceId}]");
+        var categoryFolder = scope.Category == RaceCategory.Meter300 ? "300m" : "200m";
+        return Path.Combine(Settings.OutputVideoFolder, raceFolder, categoryFolder, Path.GetFileName(input));
+    }
+
+    private static string SafeFolderName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim().TrimEnd('.');
+        return cleaned.Length == 0 ? "race" : cleaned;
     }
 
     // ---- Preview -----------------------------------------------------------
@@ -577,177 +999,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.Error($"{entry.CardNumber}: preview failed: {ex.Message}");
-            ShowBanner(BannerKind.Error, $"{entry.CardNumber}: preview failed. {ex.Message}");
-        }
-    }
-
-    // ---- Processing --------------------------------------------------------
-
-    private async Task ProcessAsync(bool force)
-    {
-        // Capture the entry now: the operator may navigate elsewhere while this runs.
-        var entry = SelectedEntry;
-        if (entry is null)
-            return;
-
-        if (entry.ExtractionStatus != RemoteExtractionStatus.Completed)
-        {
-            ShowBanner(BannerKind.Warning,
-                $"{entry.CardNumber}: remote extraction is not completed. The mapped video stays, but processing will not start.");
-            return;
-        }
-
-        var input = entry.LocalVideoPath;
-        if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
-        {
-            var missing = entry.LocalState.Clone();
-            missing.ProcessingStatus = LocalProcessingStatus.VideoNotFound;
-            missing.ErrorMessage = "The mapped local video was not found.";
-            missing.UpdatedUtc = DateTimeOffset.UtcNow;
-            await _repository.UpsertEntryStateAsync(missing, _lifetimeCts.Token);
-            entry.ReplaceLocalState(missing);
-            RebuildVisibleEntries();
-            return;
-        }
-
-        if (!force && entry.ProcessingStatus == LocalProcessingStatus.Completed)
-        {
-            ShowBanner(BannerKind.Info, $"{entry.CardNumber} is already completed. Use REPROCESS to render it again.");
-            return;
-        }
-
-        var output = Path.Combine(Settings.OutputVideoFolder, Path.GetFileName(input));
-        var allowOverwrite = Settings.AllowOverwriteExistingOutput;
-        if (File.Exists(output) && !allowOverwrite)
-        {
-            var answer = MessageBox.Show(
-                $"A processed file already exists:\n\n{output}\n\nReplace it once the new render has validated?",
-                "Output already exists", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (answer != MessageBoxResult.Yes)
-                return;
-            allowOverwrite = true;
-        }
-
-        var processingHash = OverlayHashCalculator.Calculate(entry.Entry);
-        var overlay = ToOverlay(entry.Entry);
-
-        _jobCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        IsProcessing = true;
-        ProcessingCardNumber = entry.CardNumber;
-        ProcessingFile = Path.GetFileName(input);
-        ProcessingStage = "Probing source";
-        ProcessingPercent = 0;
-        ProcessingElapsed = "00:00";
-        ProcessingEta = "—";
-
-        var processingState = entry.LocalState.Clone();
-        processingState.ProcessingStatus = LocalProcessingStatus.Processing;
-        processingState.ErrorMessage = null;
-        processingState.OutputPath = output;
-        processingState.UpdatedUtc = DateTimeOffset.UtcNow;
-        await _repository.UpsertEntryStateAsync(processingState, _lifetimeCts.Token);
-        entry.ReplaceLocalState(processingState);
-        RebuildVisibleEntries();
-
-        var loggedBucket = 0;
-        var progress = new Progress<ProcessingProgress>(p =>
-        {
-            ProcessingPercent = p.Percent;
-            ProcessingStage = "Rendering overlay";
-            ProcessingElapsed = FormatShortDuration(p.Elapsed);
-            ProcessingEta = p.EstimatedRemaining.HasValue ? FormatShortDuration(p.EstimatedRemaining.Value) : "—";
-
-            var bucket = Math.Min(100, (int)p.Percent / 20 * 20);
-            if (bucket >= 20 && bucket > loggedBucket)
-            {
-                loggedBucket = bucket;
-                _log.Info($"{entry.CardNumber} FFmpeg progress: {bucket}%");
-            }
-        });
-
-        var request = new ProcessingRequest(entry.EntryId, entry.CardNumber, input, output, overlay, allowOverwrite);
-
-        ProcessingResult result;
-        var cancelled = false;
-        try
-        {
-            result = await _videoProcessing.ProcessAsync(request, progress, _jobCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            cancelled = true;
-            result = new ProcessingResult(false, output, "Cancelled by the operator.", null, null, false);
-        }
-        finally
-        {
-            IsProcessing = false;
-            ProcessingStage = "Idle";
-            _jobCts?.Dispose();
-            _jobCts = null;
-        }
-
-        if (cancelled && _lifetimeCts.IsCancellationRequested)
-            return;
-
-        var finalState = entry.LocalState.Clone();
-        if (result.Success)
-        {
-            var currentHash = OverlayHashCalculator.Calculate(entry.Entry);
-            finalState.ProcessingStatus = string.Equals(currentHash, processingHash, StringComparison.Ordinal)
-                ? LocalProcessingStatus.Completed
-                : LocalProcessingStatus.Outdated;
-            finalState.OutputPath = result.OutputPath;
-            finalState.LastProcessedDataHash = processingHash;
-            finalState.ProcessedUtc = DateTimeOffset.UtcNow;
-            finalState.ErrorMessage = finalState.ProcessingStatus == LocalProcessingStatus.Outdated
-                ? "Race data changed while this video was rendering. Reprocess to apply it."
-                : null;
-            ProcessingPercent = 100;
-        }
-        else
-        {
-            finalState.ProcessingStatus = cancelled ? LocalProcessingStatus.Ready : LocalProcessingStatus.Failed;
-            finalState.ErrorMessage = result.Error ?? "Unknown processing error.";
-        }
-
-        finalState.UpdatedUtc = DateTimeOffset.UtcNow;
-        await _repository.UpsertEntryStateAsync(finalState, _lifetimeCts.Token);
-        entry.ReplaceLocalState(finalState);
-        RebuildVisibleEntries();
-        RefreshActionAvailability();
-
-        if (result.Success)
-        {
-            if (finalState.ProcessingStatus == LocalProcessingStatus.Outdated)
-            {
-                ShowBanner(BannerKind.Warning,
-                    $"{entry.CardNumber} rendered and validated, but the race data changed during processing. Reprocess to apply it.");
-            }
-            else
-            {
-                _log.Info($"{entry.CardNumber} marked COMPLETED.");
-                ShowBanner(BannerKind.Success, $"{entry.CardNumber} completed. Output: {result.OutputPath}");
-            }
-        }
-        else if (cancelled)
-        {
-            _log.Info($"{entry.CardNumber}: processing cancelled by the operator.");
-            ShowBanner(BannerKind.Info, $"{entry.CardNumber}: processing cancelled. The original video is untouched.");
-        }
-        else
-        {
-            _log.Error($"{entry.CardNumber} marked FAILED: {finalState.ErrorMessage}");
-            ShowBanner(BannerKind.Error, $"{entry.CardNumber} failed: {finalState.ErrorMessage}");
-        }
-    }
-
-    private void CancelProcessing()
-    {
-        if (_jobCts is { IsCancellationRequested: false })
-        {
-            ProcessingStage = "Cancelling";
-            _jobCts.Cancel();
+            _log.Error($"Cart {entry.CardNumber}: preview failed: {ex.Message}");
+            ShowBanner(BannerKind.Error, $"Cart {entry.CardNumber}: preview failed. {ex.Message}");
         }
     }
 
@@ -825,20 +1078,22 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(Settings));
         OnPropertyChanged(nameof(IsDemoMode));
         OnPropertyChanged(nameof(ModeLabel));
+        RefreshWorkContext();
         _log.Info("Settings saved.");
-        await _polling.PollNowAsync(_lifetimeCts.Token);
+        if (HasActiveRace)
+            await _polling.PollNowAsync(_lifetimeCts.Token);
         ShowBanner(BannerKind.Success, "Settings saved.");
     }
 
-    private async Task TestApiAsync()
+    private async Task TestLoginAsync()
     {
         if (IsDemoMode)
         {
-            ShowBanner(BannerKind.Info, "Demo provider is active and needs no network API.");
+            ShowBanner(BannerKind.Info, "The demo provider is active; it needs no login. Switch the data source to RealApi to test.");
             return;
         }
-        var result = await _apiTester.TestAsync(Settings.ApiUrl, _lifetimeCts.Token);
-        ShowBanner(result.Success ? BannerKind.Success : BannerKind.Error, result.Detail);
+        var result = await _backendDiagnostics.TestLoginAsync(_lifetimeCts.Token);
+        ShowBanner(result.Success ? BannerKind.Success : BannerKind.Error, result.Success ? result.Detail : "Authentication Failed: " + result.Detail);
     }
 
     private async Task TestFfmpegAsync()
@@ -856,13 +1111,28 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
     // ---- Helpers -----------------------------------------------------------
 
-    private void RefreshActionAvailability()
+    /// <summary>Re-evaluates everything derived from the selection, the job and the context.</summary>
+    private void RefreshWorkContext()
     {
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(IsProcessing));
+        OnPropertyChanged(nameof(IsUploading));
+        OnPropertyChanged(nameof(ProcessingSummary));
+        OnPropertyChanged(nameof(JobPercentText));
+        OnPropertyChanged(nameof(CurrentCardText));
+        OnPropertyChanged(nameof(CurrentNameText));
+        OnPropertyChanged(nameof(StageText));
+        OnPropertyChanged(nameof(UploadEnabled));
+        OnPropertyChanged(nameof(UploadProgressText));
+        OnPropertyChanged(nameof(NextEntry));
+        OnPropertyChanged(nameof(HasNextEntry));
         OnPropertyChanged(nameof(SelectVideoBlockReason));
         OnPropertyChanged(nameof(PreviewBlockReason));
-        OnPropertyChanged(nameof(StartProcessingBlockReason));
-        OnPropertyChanged(nameof(ReprocessBlockReason));
+        OnPropertyChanged(nameof(RetryBlockReason));
+        OnPropertyChanged(nameof(RetryLabel));
         OnPropertyChanged(nameof(OpenOutputBlockReason));
+        OnPropertyChanged(nameof(EmptyListText));
+        RefreshRaceActionAvailability();
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -873,6 +1143,16 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         entry.SecondaryName,
         entry.SecondaryLocation,
         TimingFormatter.Format(entry.TimingSeconds, Settings.TimingFormat));
+
+    private static string StageName(WorkflowStage stage) => stage switch
+    {
+        WorkflowStage.Uploading => "Uploading",
+        WorkflowStage.Assigning => "Assigning",
+        _ => "Processing"
+    };
+
+    private static string ToTitle(string upper)
+        => string.Join(' ', upper.Split(' ').Select(w => w.Length <= 1 ? w : w[0] + w[1..].ToLowerInvariant()));
 
     private static string FormatShortDuration(TimeSpan value)
         => value.TotalHours >= 1 ? value.ToString(@"hh\:mm\:ss") : value.ToString(@"mm\:ss");

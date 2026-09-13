@@ -5,7 +5,7 @@
         <StackPanel MaxWidth="980" HorizontalAlignment="Left">
 
             <TextBlock Text="Settings" Style="{StaticResource Txt.Title}" />
-            <TextBlock Text="Changes apply after SAVE SETTINGS, which also triggers an immediate poll."
+            <TextBlock Text="Changes apply after SAVE SETTINGS, which also refreshes the players. Race IDs are not set here: they belong to the races in Race Management."
                        Style="{StaticResource Txt.Muted}" Margin="0,6,0,0" />
 
             <!-- ===== Provider ===== -->
@@ -22,20 +22,7 @@
                         <TextBlock Text="Provider" Style="{StaticResource FormLabel}" />
                         <StackPanel Grid.Column="1">
                             <ComboBox ItemsSource="{Binding DataSourceModes}" SelectedItem="{Binding Settings.DataSourceMode}" />
-                            <TextBlock Text="Demo generates 100 cards locally, with Tamil names, and needs no network."
-                                       Style="{StaticResource FormHelp}" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid Margin="0,0,0,16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="230" />
-                            <ColumnDefinition Width="360" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Race API URL" Style="{StaticResource FormLabel}" />
-                        <StackPanel Grid.Column="1">
-                            <TextBox Text="{Binding Settings.ApiUrl, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Text="The payload is mapped by the API adapter; no other layer knows its shape."
+                            <TextBlock Text="Demo generates 100 cards locally with Tamil names, and simulates upload and assignment without any network. RealApi uses the backend below."
                                        Style="{StaticResource FormHelp}" />
                         </StackPanel>
                     </Grid>
@@ -74,6 +61,145 @@
                         <TextBlock Text="Demo auto advance" Style="{StaticResource FormLabel}" />
                         <CheckBox Grid.Column="1" IsChecked="{Binding Settings.DemoAutoAdvance}"
                                   Content="Release the next demo card automatically" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Backend ===== -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="BACKEND" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
+                    <TextBlock Text="{}{raceId} is filled from the selected race, {}{type} from the category, {}{playerId} from the entry. There is one Race ID per race, shared by 200 m and 300 m."
+                               Style="{StaticResource FormHelp}" />
+                    <Border Style="{StaticResource Divider}" />
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Login email" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.LoginEmail, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Password" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <PasswordBox x:Name="PasswordInput" PasswordChanged="PasswordInput_PasswordChanged" Padding="11,9" FontSize="{StaticResource Size.Body}" />
+                            <TextBlock Text="Stored encrypted for this Windows user. Never logged or shown."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Login URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.LoginUrl, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="200 m players URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Players200UrlTemplate, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="200 m type" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Type200, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="300 m players URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Players300UrlTemplate, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="300 m type" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Type300, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="200 m assign (PATCH) URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Assign200UrlTemplate, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="Body: { videoLink, marker }."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="300 m assign (PATCH) URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.Assign300UrlTemplate, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Media upload URL" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <TextBox Text="{Binding Settings.MediaUploadUrl, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="multipart/form-data, field upload. The link is read from data.link[0]."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" MaxWidth="620" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Upload after processing" Style="{StaticResource FormLabel}" />
+                        <StackPanel Grid.Column="1">
+                            <CheckBox IsChecked="{Binding Settings.UploadEnabled}" Content="Upload the processed video and assign it to the player" />
+                            <TextBlock Text="The same switch as UPLOAD on the Work page."
+                                       Style="{StaticResource FormHelp}" />
+                        </StackPanel>
                     </Grid>
                 </StackPanel>
             </Border>
@@ -308,7 +434,7 @@
                     <WrapPanel>
                         <Button Content="SAVE SETTINGS" Command="{Binding SaveSettingsCommand}"
                                 Style="{StaticResource Btn.Primary}" Margin="0,0,10,8" />
-                        <Button Content="TEST API" Command="{Binding TestApiCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
+                        <Button Content="TEST LOGIN" Command="{Binding TestLoginCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
                         <Button Content="TEST FFMPEG" Command="{Binding TestFfmpegCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
                         <Button Content="TEST NVENC" Command="{Binding TestNvencCommand}" Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" />
                     </WrapPanel>

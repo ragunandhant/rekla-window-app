@@ -8,10 +8,10 @@ using RaceVideoProcessor.App.ViewModels;
 using RaceVideoProcessor.Core.Interfaces;
 using RaceVideoProcessor.Core.Models;
 using RaceVideoProcessor.Core.Services;
+using RaceVideoProcessor.Infrastructure.Backend;
 using RaceVideoProcessor.Infrastructure.Data;
 using RaceVideoProcessor.Infrastructure.Logging;
 using RaceVideoProcessor.Infrastructure.Providers;
-using RaceVideoProcessor.Infrastructure.Services;
 using RaceVideoProcessor.Infrastructure.Video;
 
 namespace RaceVideoProcessor.App;
@@ -49,7 +49,13 @@ public partial class App : Application
             services.AddSingleton(settings);
             services.AddSingleton<ILocalStateRepository>(repository);
             services.AddSingleton<IAppLog>(log);
-            services.AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(12) });
+            // No client-wide timeout: uploads of large videos take minutes. Each
+            // backend request applies its own timeout instead.
+            services.AddSingleton(new HttpClient { Timeout = Timeout.InfiniteTimeSpan });
+            services.AddSingleton<RaceBackendClient>();
+            services.AddSingleton<IBackendDiagnostics>(sp => sp.GetRequiredService<RaceBackendClient>());
+            services.AddSingleton<DemoMediaPublisher>();
+            services.AddSingleton<IMediaPublisher, MediaPublisherRouter>();
 
             services.AddSingleton<MockDataProvider>();
             services.AddSingleton<IDemoEntryController>(sp => sp.GetRequiredService<MockDataProvider>());
@@ -59,7 +65,6 @@ public partial class App : Application
 
             services.AddSingleton<EntrySyncService>();
             services.AddSingleton<PollingCoordinator>();
-            services.AddSingleton<IApiConnectivityTester, ApiConnectivityTester>();
 
             services.AddSingleton<IFontResolver, FontResolver>();
             services.AddSingleton<IFfprobeService, FfprobeService>();
@@ -68,6 +73,7 @@ public partial class App : Application
             services.AddSingleton<IOutputValidator, OutputValidator>();
             services.AddSingleton<IVideoProcessingService, VideoProcessingService>();
             services.AddSingleton<IToolHealthService, ToolHealthService>();
+            services.AddSingleton<EntryWorkflowService>();
 
             services.AddSingleton<MainViewModel>();
             services.AddSingleton<MainWindow>();

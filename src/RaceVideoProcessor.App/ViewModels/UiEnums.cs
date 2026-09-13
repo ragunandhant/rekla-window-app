@@ -1,12 +1,13 @@
 namespace RaceVideoProcessor.App.ViewModels;
 
 /// <summary>
-/// Top-level destinations. The operator works on the Work page; Settings and Logs
-/// are supporting pages, so the entry list and workspace are never buried.
+/// Top-level destinations. The operator works on the Work page; Races, Settings
+/// and Logs are supporting pages, so the entry list and workspace are never buried.
 /// </summary>
 public enum AppPage
 {
     Work,
+    Races,
     Settings,
     Logs
 }
@@ -16,11 +17,9 @@ public enum EntryFilter
 {
     All,
     Pending,
-    Ready,
-    Processing,
+    Active,
     Completed,
-    Failed,
-    NoVideo
+    Failed
 }
 
 /// <summary>Severity of the inline banner shown above the workspace.</summary>

@@ -100,7 +100,7 @@ public sealed class RaceApiPayloadAdapter : IRealApiPayloadAdapter
             RemoteStatusText = String(item, "status"),
             VideoLink = String(item, "videoLink"),
             IsVideoEnabled = Bool(item, "isVideoEnabled") ?? true,
-            RaceDateUtc = ReadDate(item, "date") ?? ReadDate(item, "time"),
+            EntryDateUtc = ReadDate(item, "date") ?? ReadDate(item, "time"),
             PlayerId = playerId,
             UserId = String(player, "userId"),
             Marker = marker

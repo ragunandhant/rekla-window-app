@@ -2,9 +2,27 @@
 
 Production-oriented Windows WPF application for the workflow:
 
-**new entry arrives → user maps one local video → preview → user explicitly starts FFmpeg → validate → save to Processed with the same filename**.
+**select race → select 200 m / 300 m → select entry → select its video → processing starts → validate → upload → assign to the player → next entry, waiting for its video**.
 
-There is intentionally no automatic bulk-processing path.
+One video at a time, always chosen by the operator. There is no bulk processing and no start button: choosing the video is the start.
+
+## Races
+
+- **Race Management** (the *Races* page) keeps any number of races: name, race date and the backend **Race ID**. Races stay until deleted, so switching between them never loses work.
+- **One Race ID per race.** 200 m and 300 m use the same Race ID; the category only changes `type=200` / `type=300`. There are no per-category Race IDs anywhere, and none in Settings.
+- Duplicate Race IDs are refused, with an offer to select the existing race.
+- Everything stored locally is scoped to *(Race ID, category, entry)*: card 100 in race A and card 100 in race B are separate records.
+- Switching race is refused while a job runs. **Delete Race** asks for confirmation and removes the race and all its SQLite records in one transaction; other races, video files on disk and the backend are untouched. A race with a running job cannot be deleted.
+
+## Workflow
+
+- Selecting a video starts processing. With **Upload ON** the processed file is then streamed to `/v1/media/upload` (field `upload`, real byte progress), and `data.link[0]` is PATCHed to `/v1/races/{raceId}/player/{playerId}/video?type={type}` with `{ videoLink, marker }`.
+- With **Upload OFF** the job stops after processing: nothing is uploaded or assigned, and that is not an error.
+- **CANCEL PROCESSING** (shown only while processing) stops FFmpeg, discards the incomplete output and prevents upload and assignment.
+- After a fully completed entry, the next eligible entry of the same race and category is selected, and the app waits for its video. The **Next** preview shows which entry that will be.
+- An entry that already has a video asks **Cancel / Skip / Replace**.
+- Stages persist separately. A failed upload retries from the processed file; a failed assignment retries only the PATCH with the link already obtained. After a crash, an interrupted upload or assignment resumes automatically.
+- Login uses the configured email and password (stored DPAPI-encrypted). A 401 triggers one fresh login and one retry of the same request. Passwords, tokens and the Authorization header are never logged.
 
 ## What is implemented
 

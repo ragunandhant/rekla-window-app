@@ -94,7 +94,7 @@ public sealed class RaceApiPayloadAdapterTests
         var entry = new RaceApiPayloadAdapter().Parse(SamplePayload).Single();
 
         Assert.Equal(22.5d, entry.TimingSeconds);
-        Assert.Equal(new DateTimeOffset(2026, 8, 16, 1, 2, 52, 763, TimeSpan.Zero), entry.RaceDateUtc);
+        Assert.Equal(new DateTimeOffset(2026, 8, 16, 1, 2, 52, 763, TimeSpan.Zero), entry.EntryDateUtc);
     }
 
     [Fact]

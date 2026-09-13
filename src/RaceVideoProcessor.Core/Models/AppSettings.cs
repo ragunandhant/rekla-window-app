@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using RaceVideoProcessor.Core.Services;
 
 namespace RaceVideoProcessor.Core.Models;
@@ -11,12 +12,58 @@ public sealed class AppSettings
     /// defaults, which are invisible to the operator as "defaults".
     /// Absent from settings written before versioning, which therefore read as 0.
     /// </summary>
-    public const int CurrentSettingsVersion = 2;
+    public const int CurrentSettingsVersion = 3;
+
+    public const string DefaultBackendBaseUrl = "https://rekla-backend-fx7x9.ondigitalocean.app";
 
     public int SettingsVersion { get; set; }
 
     public DataSourceMode DataSourceMode { get; set; } = DataSourceMode.Demo;
-    public string ApiUrl { get; set; } = "https://example.com/api/race";
+
+    // ---- Backend -----------------------------------------------------------
+    // Race IDs are deliberately absent: they belong to the saved races, and the
+    // selected race supplies one Race ID for both categories.
+
+    public string LoginEmail { get; set; } = string.Empty;
+
+    /// <summary>Held in memory only. Persisted encrypted as <see cref="LoginPasswordProtected"/>.</summary>
+    [JsonIgnore]
+    public string LoginPassword { get; set; } = string.Empty;
+
+    /// <summary>The password as stored: encrypted by the repository, never plain text on Windows.</summary>
+    public string? LoginPasswordProtected { get; set; }
+
+    public string LoginUrl { get; set; } = DefaultBackendBaseUrl + "/v1/auth/login";
+
+    /// <summary>Placeholders: {raceId}, {type}.</summary>
+    public string Players200UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/players/all?type={type}";
+    public string Players300UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/players/all?type={type}";
+    public string Type200 { get; set; } = "200";
+    public string Type300 { get; set; } = "300";
+
+    /// <summary>Placeholders: {raceId}, {playerId}, {type}.</summary>
+    public string Assign200UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/player/{playerId}/video?type={type}";
+    public string Assign300UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/player/{playerId}/video?type={type}";
+
+    public string MediaUploadUrl { get; set; } = DefaultBackendBaseUrl + "/v1/media/upload";
+
+    /// <summary>After processing, upload the video and assign it to the player.</summary>
+    public bool UploadEnabled { get; set; } = true;
+
+    // ---- Work context, restored on the next launch --------------------------
+
+    /// <summary>Backend Race ID of the race selected in Race Management. Null when none is.</summary>
+    public string? SelectedRaceId { get; set; }
+    public RaceCategory SelectedCategory { get; set; } = RaceCategory.Meter200;
+
+    public string TypeFor(RaceCategory category) => category == RaceCategory.Meter300 ? Type300 : Type200;
+
+    public string PlayersUrlTemplateFor(RaceCategory category)
+        => category == RaceCategory.Meter300 ? Players300UrlTemplate : Players200UrlTemplate;
+
+    public string AssignUrlTemplateFor(RaceCategory category)
+        => category == RaceCategory.Meter300 ? Assign300UrlTemplate : Assign200UrlTemplate;
+
     public int PollingIntervalSeconds { get; set; } = 20;
     public int DemoEntryIntervalSeconds { get; set; } = 20;
     public bool DemoAutoAdvance { get; set; } = true;
@@ -81,6 +128,21 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(TimingFormat))
             TimingFormat = TimingFormatter.DefaultFormat;
 
+        var defaults = new AppSettings();
+        LoginEmail = LoginEmail?.Trim() ?? string.Empty;
+        LoginPassword ??= string.Empty;
+        LoginUrl = OrDefault(LoginUrl, defaults.LoginUrl);
+        Players200UrlTemplate = OrDefault(Players200UrlTemplate, defaults.Players200UrlTemplate);
+        Players300UrlTemplate = OrDefault(Players300UrlTemplate, defaults.Players300UrlTemplate);
+        Assign200UrlTemplate = OrDefault(Assign200UrlTemplate, defaults.Assign200UrlTemplate);
+        Assign300UrlTemplate = OrDefault(Assign300UrlTemplate, defaults.Assign300UrlTemplate);
+        MediaUploadUrl = OrDefault(MediaUploadUrl, defaults.MediaUploadUrl);
+        Type200 = OrDefault(Type200, "200");
+        Type300 = OrDefault(Type300, "300");
+        SelectedRaceId = string.IsNullOrWhiteSpace(SelectedRaceId) ? null : SelectedRaceId.Trim();
+        if (!Enum.IsDefined(SelectedCategory))
+            SelectedCategory = RaceCategory.Meter200;
+
         WindowWidth = Math.Clamp(double.IsFinite(WindowWidth) ? WindowWidth : 1500, 1100, 6000);
         WindowHeight = Math.Clamp(double.IsFinite(WindowHeight) ? WindowHeight : 950, 700, 4000);
 
@@ -114,6 +176,9 @@ public sealed class AppSettings
 
         SettingsVersion = CurrentSettingsVersion;
     }
+
+    private static string OrDefault(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private static string NormalizeHexColor(string? value, string fallback)
     {

@@ -31,13 +31,16 @@
                     <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Work"
                                  Command="{Binding NavigateCommand}" CommandParameter="Work"
                                  IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Work}" />
+                    <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Races"
+                                 Command="{Binding NavigateCommand}" CommandParameter="Races"
+                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Races}" />
                     <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Settings"
                                  Command="{Binding NavigateCommand}" CommandParameter="Settings"
                                  IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Settings}" />
                     <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Logs"
                                  Command="{Binding NavigateCommand}" CommandParameter="Logs"
                                  IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Logs}" />
-                    <Button Content="POLL NOW" Command="{Binding PollNowCommand}"
+                    <Button Content="REFRESH" Command="{Binding PollNowCommand}"
                             Style="{StaticResource Btn.Secondary}" Margin="10,0,0,0" />
                 </StackPanel>
 
@@ -65,6 +68,10 @@
 
             <!-- ========== Work: entry list + workspace ========== -->
             <Grid Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Work}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="370" MinWidth="250" MaxWidth="620" />
                     <ColumnDefinition Width="Auto" />
@@ -73,7 +80,9 @@
 
                 <!-- Entry list. Always visible, always navigable: nothing in this
                      panel is ever disabled because of another entry's state. -->
-                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+                <views:WorkContextBar Grid.ColumnSpan="3" />
+
+                <Border Grid.Row="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
                     <Grid Margin="16,16,10,12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -87,7 +96,9 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="ENTRIES" Style="{StaticResource Txt.Title}" />
+                            <TextBlock Style="{StaticResource Txt.Title}">
+                                <Run Text="ENTRIES" /> <Run Text="{Binding SelectedCategoryLabel, Mode=OneWay}" Foreground="{StaticResource TextMuted}" FontSize="{StaticResource Size.Heading}" />
+                            </TextBlock>
                             <TextBlock Grid.Column="1" Text="{Binding EntryCountSummary}" Style="{StaticResource Txt.Muted}"
                                        VerticalAlignment="Center" />
                         </Grid>
@@ -105,18 +116,12 @@
                             <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="All"
                                          Command="{Binding SetFilterCommand}" CommandParameter="All"
                                          IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=All}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Ready"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Ready"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Ready}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="No video"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="NoVideo"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=NoVideo}" />
                             <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Pending"
                                          Command="{Binding SetFilterCommand}" CommandParameter="Pending"
                                          IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Pending}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Processing"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Processing"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Processing}" />
+                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="In progress"
+                                         Command="{Binding SetFilterCommand}" CommandParameter="Active"
+                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Active}" />
                             <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Completed"
                                          Command="{Binding SetFilterCommand}" CommandParameter="Completed"
                                          IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Completed}" />
@@ -126,7 +131,7 @@
                         </WrapPanel>
 
                         <TextBlock Grid.Row="3" Style="{StaticResource EmptyState}" VerticalAlignment="Top"
-                                   Text="No entries match. Clear the search or filter, or release the next demo entry."
+                                   Text="{Binding EmptyListText}"
                                    Visibility="{Binding HasVisibleEntries, Converter={StaticResource BoolToVisibility}, ConverterParameter=invert}" />
 
                         <ListBox Grid.Row="3"
@@ -163,9 +168,11 @@
                                             </StackPanel>
                                         </Border>
 
-                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding PrimaryDisplay}"
+                                        <TextBlock Grid.Row="1" Text="{Binding PrimaryDisplay}"
                                                    Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"
                                                    TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EntryDateDisplay}"
+                                                   Style="{StaticResource Txt.Muted}" Margin="10,4,0,0" HorizontalAlignment="Right" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -173,10 +180,13 @@
                     </Grid>
                 </Border>
 
-                <GridSplitter Grid.Column="1" />
+                <GridSplitter Grid.Row="1" Grid.Column="1" />
 
-                <views:WorkspaceView Grid.Column="2" />
+                <views:WorkspaceView Grid.Row="1" Grid.Column="2" />
             </Grid>
+
+            <!-- ========== Races ========== -->
+            <views:RacesView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Races}" />
 
             <!-- ========== Settings ========== -->
             <views:SettingsView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Settings}" />

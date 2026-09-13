@@ -53,6 +53,17 @@ public sealed class FilterToBoolConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+/// <summary>True when the bound value's name equals the parameter: category and upload chips.</summary>
+public sealed class EqualsParameterConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is not null && parameter is string name &&
+           string.Equals(value.ToString(), name, StringComparison.OrdinalIgnoreCase);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 /// <summary>Bool to visibility. Pass "invert" to reverse.</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
@@ -92,13 +103,12 @@ public sealed class EntryStatusToBrushConverter : IValueConverter
         var key = value is EntryDisplayStatus status
             ? status switch
             {
-                EntryDisplayStatus.Completed => "Success",
-                EntryDisplayStatus.Processing => "Info",
-                EntryDisplayStatus.Ready => "Accent",
-                EntryDisplayStatus.Failed => "Danger",
-                EntryDisplayStatus.VideoMissing => "Danger",
-                EntryDisplayStatus.Outdated => "Warning",
-                EntryDisplayStatus.ExtractionPending => "Warning",
+                EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo => "Success",
+                EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading or EntryDisplayStatus.Assigning => "Info",
+                EntryDisplayStatus.Processed or EntryDisplayStatus.Ready => "Accent",
+                EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed or EntryDisplayStatus.AssignmentFailed
+                    or EntryDisplayStatus.AuthenticationFailed or EntryDisplayStatus.VideoMissing => "Danger",
+                EntryDisplayStatus.Outdated or EntryDisplayStatus.ExtractionPending or EntryDisplayStatus.Cancelled => "Warning",
                 _ => "Neutral"
             }
             : "Neutral";

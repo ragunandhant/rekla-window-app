@@ -97,3 +97,27 @@ public sealed class RelayCommand<T> : ICommand
         remove => CommandManager.RequerySuggested -= value;
     }
 }
+
+/// <summary>Parameterised async command, e.g. category chips that pass the category name.</summary>
+public sealed class AsyncRelayCommand<T> : ICommand
+{
+    private readonly AsyncRelayCommand _inner;
+    private object? _parameter;
+
+    public AsyncRelayCommand(Func<T?, Task> execute)
+        => _inner = new AsyncRelayCommand(() => execute(_parameter is T typed ? typed : default));
+
+    public bool CanExecute(object? parameter) => _inner.CanExecute(parameter);
+
+    public void Execute(object? parameter)
+    {
+        _parameter = parameter;
+        _inner.Execute(parameter);
+    }
+
+    public event EventHandler? CanExecuteChanged
+    {
+        add => CommandManager.RequerySuggested += value;
+        remove => CommandManager.RequerySuggested -= value;
+    }
+}

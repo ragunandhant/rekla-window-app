@@ -3,6 +3,7 @@ namespace RaceVideoProcessor.Core.Models;
 public sealed record EntrySnapshot(RaceEntry Entry, EntryLocalState LocalState);
 
 public sealed record SyncSnapshot(
+    RaceScope Scope,
     IReadOnlyList<EntrySnapshot> Entries,
     DateTimeOffset SynchronizedAtUtc,
     string ProviderName);

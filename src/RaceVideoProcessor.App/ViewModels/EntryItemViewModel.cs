@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using RaceVideoProcessor.Core.Models;
 using RaceVideoProcessor.Core.Services;
@@ -5,8 +6,7 @@ using RaceVideoProcessor.Core.Services;
 namespace RaceVideoProcessor.App.ViewModels;
 
 /// <summary>
-/// Operator-facing status of one entry, combining the remote extraction state and
-/// the local processing state into the single badge shown in the list.
+/// Operator-facing status of one entry: the single badge shown in the list.
 /// Each value has its own glyph as well as its own colour, so the list stays
 /// readable without relying on colour alone.
 /// </summary>
@@ -14,20 +14,28 @@ public enum EntryDisplayStatus
 {
     ExtractionPending,
     NoVideo,
+    HasVideo,
     VideoMissing,
     Ready,
     Processing,
+    Processed,
+    Uploading,
+    Assigning,
     Completed,
     Outdated,
-    Failed
+    Cancelled,
+    Failed,
+    UploadFailed,
+    AssignmentFailed,
+    AuthenticationFailed
 }
 
 /// <summary>
-/// One entry in the list and, when selected, in the workspace.
+/// One entry of the selected race and category, in the list and, when selected,
+/// in the workspace.
 ///
 /// The operator-facing identifier is always the primary player's card number.
-/// Every entry owns its own local state — mapped video, processing status, output,
-/// error — and switching between entries never mutates another entry's state.
+/// Every entry owns its own local state, scoped to its race and category.
 /// </summary>
 public sealed class EntryItemViewModel : ObservableObject
 {
@@ -44,6 +52,7 @@ public sealed class EntryItemViewModel : ObservableObject
 
     public RaceEntry Entry => _entry;
     public EntryLocalState LocalState => _localState;
+    public RaceScope Scope => _localState.Scope;
 
     /// <summary>Stable internal key. Not shown to the operator.</summary>
     public string EntryId => _entry.EntryId;
@@ -51,13 +60,24 @@ public sealed class EntryItemViewModel : ObservableObject
     /// <summary>The entry identifier the operator sees everywhere.</summary>
     public string CardNumber => _entry.CardNumber;
 
+    public string PrimaryName => _entry.PrimaryName;
+    public string PrimaryLocation => _entry.PrimaryLocation;
     public string PrimaryDisplay => _entry.PrimaryDisplay;
     public string SecondaryDisplay => _entry.SecondaryDisplay;
     public bool HasSecondary => _entry.HasSecondary;
     public string RaceTypeDisplay => _entry.RaceTypeDisplay;
     public string TimingDisplay => TimingFormatter.Format(_entry.TimingSeconds, _settings.TimingFormat);
-    public string? VideoLink => _entry.VideoLink;
-    public bool HasVideoLink => !string.IsNullOrWhiteSpace(_entry.VideoLink);
+
+    public DateTimeOffset? EntryDateUtc => _entry.EntryDateUtc;
+
+    public string EntryDateDisplay => _entry.EntryDateUtc?.ToLocalTime().ToString("dd-MM-yyyy HH:mm", CultureInfo.InvariantCulture) ?? "—";
+
+    /// <summary>The player's video link: from the API, or the one this application just assigned.</summary>
+    public string? VideoLink => !string.IsNullOrWhiteSpace(_entry.VideoLink)
+        ? _entry.VideoLink
+        : _localState.AssignmentStatus == AssignmentStatus.Completed ? _localState.UploadedVideoLink : null;
+
+    public bool HasVideoLink => !string.IsNullOrWhiteSpace(VideoLink);
 
     public RemoteExtractionStatus ExtractionStatus => _entry.ExtractionStatus;
 
@@ -77,25 +97,57 @@ public sealed class EntryItemViewModel : ObservableObject
 
     public string LocalVideoFileName => HasLocalVideo
         ? Path.GetFileName(_localState.LocalVideoPath)!
-        : "No video mapped";
+        : "No video selected";
 
     public string LocalVideoFolder => HasLocalVideo
         ? Path.GetDirectoryName(_localState.LocalVideoPath) ?? string.Empty
         : string.Empty;
 
     public string LocalVideoStatusText => !HasLocalVideo
-        ? "Not mapped"
+        ? "Select a video: processing starts as soon as you choose it."
         : LocalVideoExists ? "Video found" : "File missing on disk";
 
-    // ---- Processing / output ----------------------------------------------
+    // ---- Stages ------------------------------------------------------------
 
     public LocalProcessingStatus ProcessingStatus => _localState.ProcessingStatus;
+    public UploadStatus UploadStatus => _localState.UploadStatus;
+    public AssignmentStatus AssignmentStatus => _localState.AssignmentStatus;
+    public OverallStatus Overall => _localState.Overall;
+
+    public string ProcessingStageText => _localState.ProcessingStatus switch
+    {
+        LocalProcessingStatus.Processing => "Processing",
+        LocalProcessingStatus.Completed => "Processing Completed",
+        LocalProcessingStatus.Failed or LocalProcessingStatus.VideoNotFound => "Processing Failed",
+        LocalProcessingStatus.Cancelled => "Processing Cancelled",
+        LocalProcessingStatus.Outdated => "Outdated — race data changed",
+        LocalProcessingStatus.Ready => "Ready",
+        _ => "Not started"
+    };
+
+    public string UploadStageText => _localState.UploadStatus switch
+    {
+        UploadStatus.Uploading => "Uploading",
+        UploadStatus.Completed => "Upload Completed",
+        UploadStatus.Failed => _localState.LastFailureWasAuthentication ? "Authentication Failed" : "Upload Failed",
+        UploadStatus.Disabled => "Upload Disabled",
+        _ => "Not Started"
+    };
+
+    public string AssignmentStageText => _localState.AssignmentStatus switch
+    {
+        AssignmentStatus.Assigning => "Assigning",
+        AssignmentStatus.Completed => "Assignment Completed",
+        AssignmentStatus.Failed => _localState.LastFailureWasAuthentication ? "Authentication Failed" : "Assignment Failed",
+        _ => "Not Started"
+    };
+
+    public string? UploadedVideoLink => _localState.UploadedVideoLink;
+    public bool HasUploadedVideoLink => !string.IsNullOrWhiteSpace(_localState.UploadedVideoLink);
 
     public string? OutputPath => _localState.OutputPath;
     public bool HasOutput => !string.IsNullOrWhiteSpace(_localState.OutputPath);
-
     public string OutputDisplay => HasOutput ? _localState.OutputPath! : "No output yet";
-
     public string OutputFileName => HasOutput ? Path.GetFileName(_localState.OutputPath)! : "—";
 
     public string OutputStatusText => _localState.ProcessingStatus switch
@@ -108,24 +160,54 @@ public sealed class EntryItemViewModel : ObservableObject
     public string? ErrorMessage => _localState.ErrorMessage;
     public bool HasError => !string.IsNullOrWhiteSpace(_localState.ErrorMessage);
 
+    /// <summary>What a retry would do next, or null when there is nothing to retry.</summary>
+    public string? RetryLabel
+    {
+        get
+        {
+            if (_localState.ProcessingStatus is LocalProcessingStatus.Failed or LocalProcessingStatus.Cancelled
+                or LocalProcessingStatus.Outdated && LocalVideoExists)
+                return "RETRY PROCESSING";
+            if (_localState.ProcessingStatus == LocalProcessingStatus.Completed && _localState.UploadStatus == UploadStatus.Failed)
+                return "RETRY UPLOAD";
+            if (_localState.UploadStatus == UploadStatus.Completed && _localState.AssignmentStatus == AssignmentStatus.Failed)
+                return "RETRY ASSIGNMENT";
+            return null;
+        }
+    }
+
+    public bool CanRetry => RetryLabel is not null;
+
     // ---- Combined display status ------------------------------------------
 
     public EntryDisplayStatus DisplayStatus
     {
         get
         {
-            switch (_localState.ProcessingStatus)
+            switch (_localState.Overall)
             {
-                case LocalProcessingStatus.Processing: return EntryDisplayStatus.Processing;
-                case LocalProcessingStatus.Completed: return EntryDisplayStatus.Completed;
-                case LocalProcessingStatus.Outdated: return EntryDisplayStatus.Outdated;
-                case LocalProcessingStatus.Failed: return EntryDisplayStatus.Failed;
-                case LocalProcessingStatus.VideoNotFound: return EntryDisplayStatus.VideoMissing;
+                case OverallStatus.Processing: return EntryDisplayStatus.Processing;
+                case OverallStatus.Cancelled: return EntryDisplayStatus.Cancelled;
+                case OverallStatus.ProcessingFailed:
+                    return _localState.ProcessingStatus == LocalProcessingStatus.VideoNotFound
+                        ? EntryDisplayStatus.VideoMissing
+                        : EntryDisplayStatus.Failed;
+                case OverallStatus.ProcessingCompleted:
+                case OverallStatus.UploadCompleted: return EntryDisplayStatus.Processed;
+                case OverallStatus.Uploading: return EntryDisplayStatus.Uploading;
+                case OverallStatus.UploadFailed: return EntryDisplayStatus.UploadFailed;
+                case OverallStatus.Assigning: return EntryDisplayStatus.Assigning;
+                case OverallStatus.AssignmentFailed: return EntryDisplayStatus.AssignmentFailed;
+                case OverallStatus.AuthenticationFailed: return EntryDisplayStatus.AuthenticationFailed;
+                case OverallStatus.Completed: return EntryDisplayStatus.Completed;
             }
 
+            if (_localState.ProcessingStatus == LocalProcessingStatus.Outdated)
+                return EntryDisplayStatus.Outdated;
             if (_entry.ExtractionStatus != RemoteExtractionStatus.Completed)
                 return EntryDisplayStatus.ExtractionPending;
-
+            if (HasVideoLink)
+                return EntryDisplayStatus.HasVideo;
             return HasLocalVideo ? EntryDisplayStatus.Ready : EntryDisplayStatus.NoVideo;
         }
     }
@@ -133,27 +215,47 @@ public sealed class EntryItemViewModel : ObservableObject
     public string StatusText => DisplayStatus switch
     {
         EntryDisplayStatus.Processing => "PROCESSING",
+        EntryDisplayStatus.Processed => _localState.UploadStatus == UploadStatus.Disabled ? "PROCESSED · UPLOAD OFF" : "PROCESSED",
+        EntryDisplayStatus.Uploading => "UPLOADING",
+        EntryDisplayStatus.Assigning => "ASSIGNING",
         EntryDisplayStatus.Completed => "COMPLETED",
         EntryDisplayStatus.Outdated => "OUTDATED",
-        EntryDisplayStatus.Failed => "FAILED",
+        EntryDisplayStatus.Cancelled => "CANCELLED",
+        EntryDisplayStatus.Failed => "PROCESSING FAILED",
+        EntryDisplayStatus.UploadFailed => "UPLOAD FAILED",
+        EntryDisplayStatus.AssignmentFailed => "ASSIGNMENT FAILED",
+        EntryDisplayStatus.AuthenticationFailed => "AUTH FAILED",
         EntryDisplayStatus.VideoMissing => "VIDEO MISSING",
-        EntryDisplayStatus.ExtractionPending => "EXTRACTION PENDING",
-        EntryDisplayStatus.NoVideo => "NO VIDEO",
+        EntryDisplayStatus.ExtractionPending => "NOT COMPLETED",
+        EntryDisplayStatus.HasVideo => "HAS VIDEO",
+        EntryDisplayStatus.NoVideo => "PENDING",
         _ => "READY"
     };
 
     /// <summary>Shape as well as colour, so status is never carried by colour alone.</summary>
     public string StatusGlyph => DisplayStatus switch
     {
-        EntryDisplayStatus.Processing => "⟳",
-        EntryDisplayStatus.Completed => "✓",
-        EntryDisplayStatus.Outdated => "⚠",
-        EntryDisplayStatus.Failed => "✕",
-        EntryDisplayStatus.VideoMissing => "⚠",
+        EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading or EntryDisplayStatus.Assigning => "⟳",
+        EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo => "✓",
+        EntryDisplayStatus.Processed => "◐",
+        EntryDisplayStatus.Outdated or EntryDisplayStatus.VideoMissing => "⚠",
+        EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed or EntryDisplayStatus.AssignmentFailed
+            or EntryDisplayStatus.AuthenticationFailed => "✕",
+        EntryDisplayStatus.Cancelled => "■",
         EntryDisplayStatus.ExtractionPending => "◷",
         EntryDisplayStatus.NoVideo => "○",
         _ => "●"
     };
+
+    /// <summary>
+    /// Can be picked automatically as the next entry: the race result is in, no
+    /// video exists for the player yet, and nothing has been done to it locally.
+    /// </summary>
+    public bool IsEligibleForNext =>
+        _entry.ExtractionStatus == RemoteExtractionStatus.Completed &&
+        !HasVideoLink &&
+        _localState.ProcessingStatus is LocalProcessingStatus.VideoNotSelected or LocalProcessingStatus.Ready
+            or LocalProcessingStatus.VideoNotFound;
 
     // ---- Search / filter ---------------------------------------------------
 
@@ -198,36 +300,5 @@ public sealed class EntryItemViewModel : ObservableObject
         NotifyAll();
     }
 
-    private void NotifyAll()
-    {
-        OnPropertyChanged(nameof(Entry));
-        OnPropertyChanged(nameof(LocalState));
-        OnPropertyChanged(nameof(CardNumber));
-        OnPropertyChanged(nameof(PrimaryDisplay));
-        OnPropertyChanged(nameof(SecondaryDisplay));
-        OnPropertyChanged(nameof(HasSecondary));
-        OnPropertyChanged(nameof(RaceTypeDisplay));
-        OnPropertyChanged(nameof(TimingDisplay));
-        OnPropertyChanged(nameof(VideoLink));
-        OnPropertyChanged(nameof(HasVideoLink));
-        OnPropertyChanged(nameof(ExtractionStatus));
-        OnPropertyChanged(nameof(RemoteStatusDisplay));
-        OnPropertyChanged(nameof(LocalVideoPath));
-        OnPropertyChanged(nameof(HasLocalVideo));
-        OnPropertyChanged(nameof(LocalVideoExists));
-        OnPropertyChanged(nameof(LocalVideoFileName));
-        OnPropertyChanged(nameof(LocalVideoFolder));
-        OnPropertyChanged(nameof(LocalVideoStatusText));
-        OnPropertyChanged(nameof(ProcessingStatus));
-        OnPropertyChanged(nameof(OutputPath));
-        OnPropertyChanged(nameof(HasOutput));
-        OnPropertyChanged(nameof(OutputDisplay));
-        OnPropertyChanged(nameof(OutputFileName));
-        OnPropertyChanged(nameof(OutputStatusText));
-        OnPropertyChanged(nameof(ErrorMessage));
-        OnPropertyChanged(nameof(HasError));
-        OnPropertyChanged(nameof(DisplayStatus));
-        OnPropertyChanged(nameof(StatusText));
-        OnPropertyChanged(nameof(StatusGlyph));
-    }
+    private void NotifyAll() => OnPropertyChanged(string.Empty);
 }

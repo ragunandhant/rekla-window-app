@@ -38,7 +38,8 @@ public sealed record RaceEntry
     public string? VideoLink { get; init; }
     public bool IsVideoEnabled { get; init; } = true;
 
-    public DateTimeOffset? RaceDateUtc { get; init; }
+    /// <summary>The player's API date (falling back to time). Used for display and newest-first sorting; not the race date.</summary>
+    public DateTimeOffset? EntryDateUtc { get; init; }
 
     // Technical identifiers: diagnostics only, never shown in the operator UI.
     public string? PlayerId { get; init; }

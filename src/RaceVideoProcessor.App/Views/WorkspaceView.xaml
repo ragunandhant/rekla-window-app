@@ -4,7 +4,7 @@
     <Grid>
         <!-- Nothing selected yet -->
         <TextBlock Style="{StaticResource EmptyState}" VerticalAlignment="Center"
-                   Text="Select an entry on the left to work on it.&#x0a;Entries arrive from the provider and are never processed automatically."
+                   Text="{Binding EmptyListText}"
                    Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}, ConverterParameter=invert}" />
 
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,18,22,22"
@@ -74,7 +74,7 @@
                         <!-- Remote information -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="RACE DETAILS · FROM PROVIDER" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="PLAYER · FROM THE API" Style="{StaticResource Txt.Label}" />
                                 <Border Style="{StaticResource Divider}" Margin="0,12" />
 
                                 <Grid>
@@ -83,6 +83,7 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -114,6 +115,10 @@
                                     <TextBlock Grid.Row="5" Text="Remote status" Style="{StaticResource FormLabel}" Margin="0,8" />
                                     <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedEntry.RemoteStatusDisplay}"
                                                Style="{StaticResource Txt.Body}" FontWeight="SemiBold" Margin="0,8" />
+
+                                    <TextBlock Grid.Row="6" Text="Player date" Style="{StaticResource FormLabel}" Margin="0,8" />
+                                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SelectedEntry.EntryDateDisplay}"
+                                               Style="{StaticResource Txt.Body}" Margin="0,8" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -121,7 +126,7 @@
                         <!-- Local video mapping -->
                         <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                             <StackPanel>
-                                <TextBlock Text="LOCAL VIDEO · MAPPED BY YOU" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="VIDEO · SELECTING ONE STARTS PROCESSING" Style="{StaticResource Txt.Label}" />
 
                                 <TextBlock Text="{Binding SelectedEntry.LocalVideoFileName}" Style="{StaticResource Txt.Heading}"
                                            Margin="0,12,0,0" TextTrimming="CharacterEllipsis" />
@@ -132,47 +137,73 @@
                                            Margin="0,8,0,0" />
 
                                 <WrapPanel Margin="0,16,0,0">
-                                    <Button Content="SELECT / CHANGE VIDEO" Command="{Binding SelectVideoCommand}" Margin="0,0,10,8" />
+                                    <Button Content="SELECT VIDEO" Command="{Binding SelectVideoCommand}"
+                                            Style="{StaticResource Btn.Primary}" Margin="0,0,10,8" />
                                     <Button Content="PREVIEW" Command="{Binding PreviewCommand}"
-                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
-                                    <Button Content="CLEAR" Command="{Binding ClearVideoCommand}"
-                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" />
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" VerticalAlignment="Center" />
                                 </WrapPanel>
 
-                                <TextBlock Text="{Binding PreviewBlockReason}" Style="{StaticResource BlockReason}"
-                                           Visibility="{Binding PreviewBlockReason, Converter={StaticResource TextToVisibility}}" />
+                                <TextBlock Text="{Binding SelectVideoBlockReason}" Style="{StaticResource BlockReason}"
+                                           Visibility="{Binding SelectVideoBlockReason, Converter={StaticResource TextToVisibility}}" />
+                                <TextBlock Style="{StaticResource FormHelp}"
+                                           Text="Processing starts as soon as you choose the file. With upload ON, the processed video is then uploaded and assigned to this player." />
                             </StackPanel>
                         </Border>
 
-                        <!-- Processing -->
+                        <!-- Workflow: the three stages of this entry -->
                         <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                             <StackPanel>
-                                <TextBlock Text="PROCESSING · STARTED BY YOU" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="WORKFLOW" Style="{StaticResource Txt.Label}" />
+                                <Border Style="{StaticResource Divider}" Margin="0,12" />
 
-                                <WrapPanel Margin="0,14,0,0">
-                                    <Button Content="START PROCESSING" Command="{Binding StartProcessingCommand}"
-                                            Style="{StaticResource Btn.Primary}" Margin="0,0,10,8" />
-                                    <Button Content="RETRY / REPROCESS" Command="{Binding ReprocessCommand}"
-                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,10,8" />
-                                    <Button Content="CANCEL RENDER" Command="{Binding CancelProcessingCommand}"
-                                            Style="{StaticResource Btn.Danger}" Margin="0,0,0,8"
-                                            Visibility="{Binding IsProcessing, Converter={StaticResource BoolToVisibility}}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Processing" Style="{StaticResource FormLabel}" Margin="0,7" />
+                                    <TextBlock Grid.Column="1" Text="{Binding SelectedEntry.ProcessingStageText}"
+                                               Style="{StaticResource Txt.Body}" FontWeight="SemiBold" Margin="0,7" />
+
+                                    <TextBlock Grid.Row="1" Text="Upload" Style="{StaticResource FormLabel}" Margin="0,7" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedEntry.UploadStageText}"
+                                               Style="{StaticResource Txt.Body}" FontWeight="SemiBold" Margin="0,7" />
+
+                                    <TextBlock Grid.Row="2" Text="Assignment" Style="{StaticResource FormLabel}" Margin="0,7" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedEntry.AssignmentStageText}"
+                                               Style="{StaticResource Txt.Body}" FontWeight="SemiBold" Margin="0,7" />
+
+                                    <TextBlock Grid.Row="3" Text="Video link" Style="{StaticResource FormLabel}" Margin="0,7" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding SelectedEntry.VideoLink, Mode=OneWay}"
+                                             IsReadOnly="True" Margin="0,4" FontFamily="{StaticResource MonoFont}"
+                                             FontSize="{StaticResource Size.Small}" />
+                                </Grid>
+
+                                <WrapPanel Margin="0,14,0,0" Visibility="{Binding SelectedEntry.CanRetry, Converter={StaticResource BoolToVisibility}}">
+                                    <Button Content="{Binding RetryLabel}" Command="{Binding RetryCommand}"
+                                            Style="{StaticResource Btn.Secondary}" Margin="0,0,0,8" />
                                 </WrapPanel>
-
-                                <TextBlock Text="{Binding StartProcessingBlockReason}" Style="{StaticResource BlockReason}"
-                                           Visibility="{Binding StartProcessingBlockReason, Converter={StaticResource TextToVisibility}}" />
+                                <TextBlock Text="{Binding RetryBlockReason}" Style="{StaticResource BlockReason}"
+                                           Visibility="{Binding SelectedEntry.CanRetry, Converter={StaticResource BoolToVisibility}}" />
 
                                 <Border Margin="0,14,0,0" Padding="14,11" CornerRadius="{StaticResource Radius.Control}"
                                         Background="{StaticResource DangerSoft}" BorderBrush="{StaticResource Danger}" BorderThickness="1"
                                         Visibility="{Binding SelectedEntry.HasError, Converter={StaticResource BoolToVisibility}}">
                                     <StackPanel>
-                                        <TextBlock Text="LAST ERROR" Style="{StaticResource Txt.Label}" Foreground="{StaticResource Danger}" />
+                                        <TextBlock Text="LAST MESSAGE" Style="{StaticResource Txt.Label}" Foreground="{StaticResource Danger}" />
                                         <TextBlock Text="{Binding SelectedEntry.ErrorMessage}" TextWrapping="Wrap"
                                                    Foreground="{StaticResource Danger}" Margin="0,6,0,0" />
                                     </StackPanel>
                                 </Border>
 
-                                <TextBlock Text="Only this entry is processed, and only when you start it."
+                                <TextBlock Text="A failed upload retries from the processed file; a failed assignment retries only the assignment, reusing the uploaded link."
                                            Style="{StaticResource FormHelp}" />
                             </StackPanel>
                         </Border>
@@ -184,13 +215,14 @@
                         <!-- Live render -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="RENDER" Style="{StaticResource Txt.Label}" />
+                                <TextBlock Text="CURRENT JOB" Style="{StaticResource Txt.Label}" />
                                 <TextBlock Text="{Binding ProcessingSummary}" Style="{StaticResource Txt.Heading}" Margin="0,10,0,0" />
                                 <TextBlock Text="{Binding ProcessingFile}" Style="{StaticResource Txt.Muted}"
                                            TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
 
-                                <TextBlock Text="{Binding ProcessingPercentText}" Style="{StaticResource Txt.Display}" Margin="0,14,0,0" />
-                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProcessingPercent, Mode=OneWay}" Margin="0,10,0,0" />
+                                <TextBlock Text="{Binding JobPercentText}" Style="{StaticResource Txt.Display}" Margin="0,14,0,0" />
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding JobPercent, Mode=OneWay}" Margin="0,10,0,0"
+                                             IsIndeterminate="{Binding JobPercentKnown, Mode=OneWay, Converter={StaticResource EqualsParam}, ConverterParameter=False}" />
 
                                 <Grid Margin="0,16,0,0">
                                     <Grid.ColumnDefinitions>
@@ -209,7 +241,8 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <TextBlock Text="{Binding ProcessingStage}" Style="{StaticResource FormHelp}" />
+                                <TextBlock Style="{StaticResource FormHelp}"
+                                           Text="Elapsed and remaining apply to processing. Upload shows the real share of the file sent." />
                             </StackPanel>
                         </Border>
 
