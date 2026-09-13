@@ -96,8 +96,10 @@ public partial class App : Application
                     log.Error("Could not save window placement: " + ex.Message);
                 }
 
-                await viewModel.DisposeAsync();
-                _services?.Dispose();
+                // The container holds IAsyncDisposable-only services (the main view
+                // model), which the synchronous Dispose() refuses to dispose.
+                if (_services is not null)
+                    await _services.DisposeAsync();
                 Shutdown();
             };
 
@@ -119,7 +121,8 @@ public partial class App : Application
         {
             MessageBox.Show(ex.ToString(), "Race Video Processor — startup failed",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            _services?.Dispose();
+            if (_services is not null)
+                await _services.DisposeAsync();
             Shutdown(-1);
         }
     }

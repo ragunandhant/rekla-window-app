@@ -35,6 +35,15 @@ public sealed class OutputValidator : IOutputValidator
                     $"Output resolution changed unexpectedly ({output.Width}x{output.Height} vs {source.Width}x{source.Height}).",
                     output);
 
+            if (source.FrameRate > 0 && output.FrameRate > 0 &&
+                Math.Abs(output.FrameRate - source.FrameRate) > Math.Max(0.05, source.FrameRate * 0.01))
+                return new ValidationResult(false,
+                    $"Output frame rate changed unexpectedly ({output.FrameRate:0.###} vs {source.FrameRate:0.###} fps).",
+                    output);
+
+            if (source.HasAudio && !output.HasAudio)
+                return new ValidationResult(false, "The source has audio but the output does not.", output);
+
             return new ValidationResult(true, null, output);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

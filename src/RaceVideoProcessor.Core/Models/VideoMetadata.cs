@@ -8,7 +8,11 @@ public sealed record VideoMetadata(
     double FrameRate,
     string VideoCodec,
     string? AudioCodec,
-    string? PixelFormat)
+    string? PixelFormat,
+    long? VideoBitRate = null,
+    long? AudioBitRate = null,
+    long? FormatBitRate = null,
+    long? FileSizeBytes = null)
 {
     public bool HasAudio => !string.IsNullOrWhiteSpace(AudioCodec);
     public TimeSpan Duration => TimeSpan.FromSeconds(DurationSeconds);

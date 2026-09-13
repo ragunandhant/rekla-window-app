@@ -65,6 +65,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private bool _jobPercentKnown = true;
     private string _processingElapsed = "00:00";
     private string _processingEta = "—";
+    private string _jobBytesText = string.Empty;
 
     private string _bannerText = string.Empty;
     private BannerKind _bannerSeverity = BannerKind.Info;
@@ -307,6 +308,16 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string ProcessingElapsed { get => _processingElapsed; private set => SetProperty(ref _processingElapsed, value); }
     public string ProcessingEta { get => _processingEta; private set => SetProperty(ref _processingEta, value); }
 
+    /// <summary>"67.0 MB / 100.0 MB" while uploading; empty otherwise.</summary>
+    public string JobBytesText { get => _jobBytesText; private set => SetProperty(ref _jobBytesText, value); }
+
+    /// <summary>The video file at the top of the workspace: the running job's, else the selected entry's.</summary>
+    public string SelectedVideoText => _job is not null
+        ? ProcessingFile
+        : SelectedEntry is { HasLocalVideo: true } entry ? entry.LocalVideoFileName : "No video selected";
+
+    public bool IsProcessingStageVisible => _job is { Stage: WorkflowStage.Processing };
+
     /// <summary>Progress of the running stage: FFmpeg progress while processing, bytes sent while uploading.</summary>
     public double JobPercent
     {
@@ -392,7 +403,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             if (!HasActiveRace) return "Select a race first.";
             if (SelectedEntry is null) return "Select an entry first.";
             if (_job is not null) return $"Cart {_job.CardNumber} is {StageName(_job.Stage).ToLowerInvariant()}. One video at a time.";
-            if (SelectedEntry.ExtractionStatus != RemoteExtractionStatus.Completed) return "This race result is not completed yet.";
             return string.Empty;
         }
     }
@@ -684,14 +694,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         if (entry is null || race is null || IsBusy)
             return;
 
-        if (entry.ExtractionStatus != RemoteExtractionStatus.Completed)
-        {
-            ShowBanner(BannerKind.Warning, $"Cart {entry.CardNumber}: the race result is not completed yet, so it cannot be processed.");
-            return;
-        }
-
         // Never silently overwrite a video that is already on the player.
-        if (entry.HasVideoLink)
+        if (VideoEligibility.RequiresReplaceConfirmation(entry.VideoLink))
         {
             var choice = ChoiceDialog.Show(
                 "Existing video",
@@ -831,6 +835,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         ProcessingEta = "—";
         JobPercent = 0;
         JobPercentKnown = true;
+        JobBytesText = string.Empty;
         RefreshWorkContext();
 
         var loggedBucket = 0;
@@ -849,6 +854,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             JobPercentKnown = p.Percent.HasValue;
             JobPercent = p.Percent ?? 0;
             OnPropertyChanged(nameof(UploadProgressText));
+
+            JobBytesText = p.Upload is { TotalBytes: > 0 } upload
+                ? $"{upload.BytesSent / 1048576d:0.0} MB / {upload.TotalBytes.Value / 1048576d:0.0} MB"
+                : string.Empty;
 
             if (p.Processing is { } processing)
             {
@@ -1122,6 +1131,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CurrentCardText));
         OnPropertyChanged(nameof(CurrentNameText));
         OnPropertyChanged(nameof(StageText));
+        OnPropertyChanged(nameof(SelectedVideoText));
+        OnPropertyChanged(nameof(IsProcessingStageVisible));
         OnPropertyChanged(nameof(UploadEnabled));
         OnPropertyChanged(nameof(UploadProgressText));
         OnPropertyChanged(nameof(NextEntry));

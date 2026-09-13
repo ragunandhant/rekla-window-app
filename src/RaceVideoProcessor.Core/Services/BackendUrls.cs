@@ -9,10 +9,10 @@ namespace RaceVideoProcessor.Core.Services;
 public static class BackendUrls
 {
     public static Uri Players(AppSettings settings, RaceScope scope)
-        => Build(settings.PlayersUrlTemplateFor(scope.Category), scope.RaceId, settings.TypeFor(scope.Category), playerId: null);
+        => Build(settings.PlayersUrlTemplateFor(scope.Category), scope.RaceId, AppSettings.TypeFor(scope.Category), playerId: null);
 
     public static Uri Assign(AppSettings settings, RaceScope scope, string playerId)
-        => Build(settings.AssignUrlTemplateFor(scope.Category), scope.RaceId, settings.TypeFor(scope.Category), playerId);
+        => Build(settings.AssignUrlTemplateFor(scope.Category), scope.RaceId, AppSettings.TypeFor(scope.Category), playerId);
 
     public static Uri Build(string template, string raceId, string type, string? playerId)
     {

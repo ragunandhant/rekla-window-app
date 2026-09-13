@@ -68,10 +68,6 @@
 
             <!-- ========== Work: entry list + workspace ========== -->
             <Grid Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Work}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="370" MinWidth="250" MaxWidth="620" />
                     <ColumnDefinition Width="Auto" />
@@ -80,9 +76,7 @@
 
                 <!-- Entry list. Always visible, always navigable: nothing in this
                      panel is ever disabled because of another entry's state. -->
-                <views:WorkContextBar Grid.ColumnSpan="3" />
-
-                <Border Grid.Row="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
                     <Grid Margin="16,16,10,12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -180,9 +174,9 @@
                     </Grid>
                 </Border>
 
-                <GridSplitter Grid.Row="1" Grid.Column="1" />
+                <GridSplitter Grid.Column="1" />
 
-                <views:WorkspaceView Grid.Row="1" Grid.Column="2" />
+                <views:WorkspaceView Grid.Column="2" />
             </Grid>
 
             <!-- ========== Races ========== -->

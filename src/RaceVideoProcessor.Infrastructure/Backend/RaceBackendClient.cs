@@ -55,14 +55,11 @@ public sealed class RaceBackendClient : IMediaPublisher, IBackendDiagnostics
     public async Task<string> UploadAsync(string filePath, IProgress<UploadProgress>? progress, CancellationToken cancellationToken)
     {
         var url = ParseUrl(_settings.MediaUploadUrl, "Media upload URL");
-        var fileName = Path.GetFileName(filePath);
 
         // A retry after 401 needs a fresh body, so the request is rebuilt from the file each time.
         HttpRequestMessage Build()
         {
-            var file = new ProgressFileContent(filePath, progress);
-            file.Headers.ContentType = new MediaTypeHeaderValue(ContentTypeFor(filePath));
-            var form = new MultipartFormDataContent { { file, "upload", fileName } };
+            var form = CreateUploadForm(filePath, progress);
             return new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
         }
 
@@ -71,6 +68,37 @@ public sealed class RaceBackendClient : IMediaPublisher, IBackendDiagnostics
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return ExtractUploadedLink(body);
     }
+
+    /// <summary>
+    /// The multipart body for the upload: one file part in field <c>upload</c>,
+    /// streamed from disk, carrying the file's real name.
+    ///
+    /// The Content-Disposition header is written explicitly, in the form browsers
+    /// send: <c>form-data; name="upload"; filename="Race_100.mp4"</c>. The default
+    /// .NET header adds <c>filename*=utf-8''…</c> and leaves <c>filename</c>
+    /// unquoted, which some server-side parsers do not read, so they store the
+    /// file under a generated name instead. Non-ASCII names (Tamil) are sent as
+    /// raw UTF-8, as browsers do.
+    /// </summary>
+    internal static MultipartFormDataContent CreateUploadForm(string filePath, IProgress<UploadProgress>? progress)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var file = new ProgressFileContent(filePath, progress);
+        file.Headers.ContentType = new MediaTypeHeaderValue(ContentTypeFor(filePath));
+        file.Headers.TryAddWithoutValidation("Content-Disposition",
+            $"form-data; name=\"upload\"; filename=\"{QuoteSafe(fileName)}\"");
+
+        var form = new MultipartFormDataContent
+        {
+            HeaderEncodingSelector = (_, _) => Encoding.UTF8
+        };
+        form.Add(file);
+        return form;
+    }
+
+    /// <summary>Escapes the characters that would end or break a quoted header value.</summary>
+    private static string QuoteSafe(string value)
+        => value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", string.Empty).Replace("\n", string.Empty);
 
     /// <summary>Reads <c>data.link[0]</c> from the upload response.</summary>
     internal static string ExtractUploadedLink(string body)

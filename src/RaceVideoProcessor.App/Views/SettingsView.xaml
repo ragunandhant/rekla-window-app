@@ -69,7 +69,7 @@
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
                     <TextBlock Text="BACKEND" Style="{StaticResource Txt.Heading}" Foreground="{StaticResource Accent}" />
-                    <TextBlock Text="{}{raceId} is filled from the selected race, {}{type} from the category, {}{playerId} from the entry. There is one Race ID per race, shared by 200 m and 300 m."
+                    <TextBlock Text="{}{raceId} is filled from the selected race, {}{type} from the category (200 Meter → 200, 300 Meter → 300), {}{playerId} from the entry. There is one Race ID per race, shared by 200 m and 300 m."
                                Style="{StaticResource FormHelp}" />
                     <Border Style="{StaticResource Divider}" />
 
@@ -119,16 +119,6 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Margin="0,0,0,16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="230" />
-                            <ColumnDefinition Width="*" MaxWidth="620" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="200 m type" Style="{StaticResource FormLabel}" />
-                        <StackPanel Grid.Column="1">
-                            <TextBox Text="{Binding Settings.Type200, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                    </Grid>
 
                     <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
@@ -141,16 +131,6 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Margin="0,0,0,16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="230" />
-                            <ColumnDefinition Width="*" MaxWidth="620" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="300 m type" Style="{StaticResource FormLabel}" />
-                        <StackPanel Grid.Column="1">
-                            <TextBox Text="{Binding Settings.Type300, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                    </Grid>
 
                     <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>

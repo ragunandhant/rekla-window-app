@@ -73,11 +73,11 @@ public sealed class EntryItemViewModel : ObservableObject
     public string EntryDateDisplay => _entry.EntryDateUtc?.ToLocalTime().ToString("dd-MM-yyyy HH:mm", CultureInfo.InvariantCulture) ?? "—";
 
     /// <summary>The player's video link: from the API, or the one this application just assigned.</summary>
-    public string? VideoLink => !string.IsNullOrWhiteSpace(_entry.VideoLink)
+    public string? VideoLink => VideoEligibility.HasVideo(_entry.VideoLink)
         ? _entry.VideoLink
         : _localState.AssignmentStatus == AssignmentStatus.Completed ? _localState.UploadedVideoLink : null;
 
-    public bool HasVideoLink => !string.IsNullOrWhiteSpace(VideoLink);
+    public bool HasVideoLink => VideoEligibility.HasVideo(VideoLink);
 
     public RemoteExtractionStatus ExtractionStatus => _entry.ExtractionStatus;
 
@@ -204,8 +204,8 @@ public sealed class EntryItemViewModel : ObservableObject
 
             if (_localState.ProcessingStatus == LocalProcessingStatus.Outdated)
                 return EntryDisplayStatus.Outdated;
-            if (_entry.ExtractionStatus != RemoteExtractionStatus.Completed)
-                return EntryDisplayStatus.ExtractionPending;
+            // Only the video link decides: no link means no video yet, whatever the
+            // race result status says.
             if (HasVideoLink)
                 return EntryDisplayStatus.HasVideo;
             return HasLocalVideo ? EntryDisplayStatus.Ready : EntryDisplayStatus.NoVideo;
@@ -228,7 +228,7 @@ public sealed class EntryItemViewModel : ObservableObject
         EntryDisplayStatus.VideoMissing => "VIDEO MISSING",
         EntryDisplayStatus.ExtractionPending => "NOT COMPLETED",
         EntryDisplayStatus.HasVideo => "HAS VIDEO",
-        EntryDisplayStatus.NoVideo => "PENDING",
+        EntryDisplayStatus.NoVideo => "READY FOR UPLOAD",
         _ => "READY"
     };
 
@@ -247,12 +247,15 @@ public sealed class EntryItemViewModel : ObservableObject
         _ => "●"
     };
 
+    /// <summary>"Not Uploaded" or "Already Assigned", from the video link alone.</summary>
+    public string VideoAssignmentText => HasVideoLink ? "Already Assigned" : "Not Uploaded";
+
     /// <summary>
-    /// Can be picked automatically as the next entry: the race result is in, no
-    /// video exists for the player yet, and nothing has been done to it locally.
+    /// Can be picked automatically as the next entry: no video link yet (null,
+    /// empty or whitespace) and nothing done to it locally. The race result status
+    /// is deliberately not a condition.
     /// </summary>
     public bool IsEligibleForNext =>
-        _entry.ExtractionStatus == RemoteExtractionStatus.Completed &&
         !HasVideoLink &&
         _localState.ProcessingStatus is LocalProcessingStatus.VideoNotSelected or LocalProcessingStatus.Ready
             or LocalProcessingStatus.VideoNotFound;

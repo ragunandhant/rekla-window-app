@@ -38,8 +38,6 @@ public sealed class AppSettings
     /// <summary>Placeholders: {raceId}, {type}.</summary>
     public string Players200UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/players/all?type={type}";
     public string Players300UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/players/all?type={type}";
-    public string Type200 { get; set; } = "200";
-    public string Type300 { get; set; } = "300";
 
     /// <summary>Placeholders: {raceId}, {playerId}, {type}.</summary>
     public string Assign200UrlTemplate { get; set; } = DefaultBackendBaseUrl + "/v1/races/{raceId}/player/{playerId}/video?type={type}";
@@ -56,7 +54,8 @@ public sealed class AppSettings
     public string? SelectedRaceId { get; set; }
     public RaceCategory SelectedCategory { get; set; } = RaceCategory.Meter200;
 
-    public string TypeFor(RaceCategory category) => category == RaceCategory.Meter300 ? Type300 : Type200;
+    /// <summary>The API type is fixed by the category and is not configurable: 200 Meter → 200, 300 Meter → 300.</summary>
+    public static string TypeFor(RaceCategory category) => category == RaceCategory.Meter300 ? "300" : "200";
 
     public string PlayersUrlTemplateFor(RaceCategory category)
         => category == RaceCategory.Meter300 ? Players300UrlTemplate : Players200UrlTemplate;
@@ -102,6 +101,15 @@ public sealed class AppSettings
     public double ScoreboardOpacity { get; set; } = 0.88;
     public bool AllowOverwriteExistingOutput { get; set; } = false;
 
+    /// <summary>
+    /// Encode at the source's own bitrate so the processed file stays about the
+    /// size of the original. Off: fixed-quality CRF/CQ, which can grow the file.
+    /// </summary>
+    public bool MatchSourceFileSize { get; set; } = true;
+
+    /// <summary>Allowed size difference from the original, in percent, before a warning is logged.</summary>
+    public double FileSizeTolerancePercent { get; set; } = 10;
+
     // Window placement, so the application reopens where the operator left it.
     public double WindowWidth { get; set; } = 1500;
     public double WindowHeight { get; set; } = 950;
@@ -121,6 +129,7 @@ public sealed class AppSettings
         DemoReleasedCount = Math.Clamp(DemoReleasedCount, 1, 100);
         CompletionTimeDisplaySeconds = Math.Clamp(CompletionTimeDisplaySeconds, 0.5, 30.0);
         FontSizeScale = Math.Clamp(FontSizeScale, 0.65, 1.75);
+        FileSizeTolerancePercent = Math.Clamp(double.IsFinite(FileSizeTolerancePercent) ? FileSizeTolerancePercent : 10, 1, 100);
         ScoreboardOpacity = Math.Clamp(ScoreboardOpacity, 0.1, 1.0);
         ScoreboardBackgroundColor = NormalizeHexColor(ScoreboardBackgroundColor, "#0A1020");
         ScoreboardTextColor = NormalizeHexColor(ScoreboardTextColor, "#FFFFFF");
@@ -137,8 +146,6 @@ public sealed class AppSettings
         Assign200UrlTemplate = OrDefault(Assign200UrlTemplate, defaults.Assign200UrlTemplate);
         Assign300UrlTemplate = OrDefault(Assign300UrlTemplate, defaults.Assign300UrlTemplate);
         MediaUploadUrl = OrDefault(MediaUploadUrl, defaults.MediaUploadUrl);
-        Type200 = OrDefault(Type200, "200");
-        Type300 = OrDefault(Type300, "300");
         SelectedRaceId = string.IsNullOrWhiteSpace(SelectedRaceId) ? null : SelectedRaceId.Trim();
         if (!Enum.IsDefined(SelectedCategory))
             SelectedCategory = RaceCategory.Meter200;

@@ -29,7 +29,8 @@ public sealed record WorkflowProgress(
     WorkflowStage Stage,
     double? Percent,
     ProcessingProgress? Processing,
-    EntryLocalState State);
+    EntryLocalState State,
+    UploadProgress? Upload = null);
 
 public enum WorkflowOutcome
 {
@@ -228,7 +229,7 @@ public sealed class EntryWorkflowService
         _log.Info($"{context}: upload started via {_publisher.Name}.");
 
         var uploadProgress = new InlineProgress<UploadProgress>(p =>
-            Report(progress, WorkflowStage.Uploading, p.Percent, null, state));
+            progress?.Report(new WorkflowProgress(WorkflowStage.Uploading, p.Percent, null, state.Clone(), p)));
 
         try
         {

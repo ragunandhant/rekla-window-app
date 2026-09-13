@@ -262,8 +262,9 @@ public sealed class RaceBackendClientTests
             Assert.Equal("https://media.namadhurekla.com/uploads/example.mp4", link);
             var upload = handler.Requests.Single(r => r.Uri.AbsolutePath == "/v1/media/upload");
             Assert.Equal("multipart/form-data", upload.ContentType);
-            Assert.Contains("name=upload", upload.Body);
+            Assert.Contains("name=\"upload\"", upload.Body);
             Assert.Contains("filename=\"cart 100.mp4\"", upload.Body);
+            Assert.DoesNotContain("filename*", upload.Body);
 
             Assert.True(reports.Count > 2);
             Assert.All(reports, r => Assert.Equal(bytes.Length, r.TotalBytes));

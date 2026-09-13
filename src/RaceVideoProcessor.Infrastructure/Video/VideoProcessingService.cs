@@ -83,7 +83,12 @@ public sealed class VideoProcessingService : IVideoProcessingService
             if (filter.Warning is not null)
                 _log.Error($"{request.CardNumber}: {filter.Warning}");
 
-            var args = BuildProcessArguments(inputFull, tempOutput, filter.Filter, useNvenc);
+            var args = BuildProcessArguments(inputFull, tempOutput, filter.Filter, useNvenc, source);
+            var targetBitRate = _settings.MatchSourceFileSize ? EncodingBudget.TargetVideoBitRate(source) : null;
+            _log.Info(targetBitRate is { } kbps
+                ? $"{request.CardNumber}: encoding at the source video bitrate, {kbps / 1000} kbps, to keep the file size " +
+                  $"close to the original ({FormatSize(source.FileSizeBytes ?? new FileInfo(inputFull).Length)})."
+                : $"{request.CardNumber}: source bitrate unavailable; using quality-based encoding.");
             _log.Info($"Processing {request.CardNumber} started using {(useNvenc ? "NVIDIA NVENC" : "CPU / x264")} " +
                       $"and font {filter.FontName}.");
 
@@ -110,6 +115,8 @@ public sealed class VideoProcessingService : IVideoProcessingService
             // Existing valid output remains untouched until the new temporary output has
             // passed FFprobe validation. Only then do we replace/move atomically enough
             // for the local filesystem workflow.
+            LogSizeComparison(request.CardNumber, new FileInfo(inputFull).Length, new FileInfo(tempOutput).Length);
+
             File.Move(tempOutput, outputFull, overwrite: request.AllowOverwrite);
             tempOutput = null;
             _log.Info($"{request.CardNumber} output validation successful: {outputFull}");
@@ -170,7 +177,7 @@ public sealed class VideoProcessingService : IVideoProcessingService
         }
     }
 
-    private List<string> BuildProcessArguments(string input, string output, string filter, bool useNvenc)
+    internal List<string> BuildProcessArguments(string input, string output, string filter, bool useNvenc, VideoMetadata source)
     {
         var args = new List<string>
         {
@@ -179,12 +186,53 @@ public sealed class VideoProcessingService : IVideoProcessingService
             "-vf", filter
         };
 
-        if (useNvenc)
+        var veryHigh = _settings.EncodingQuality == EncodingQuality.VeryHigh;
+        var target = _settings.MatchSourceFileSize ? EncodingBudget.TargetVideoBitRate(source) : null;
+
+        if (target is { } bitRate)
         {
-            var cq = _settings.EncodingQuality == EncodingQuality.VeryHigh ? "16" : "18";
+            // Size-matched: the source's own video bitrate, with a VBV cap so
+            // complex moments may borrow bits but the average — and the file size —
+            // stays at the source's. Quality comes from the encoder's search effort
+            // (slow preset, lookahead, adaptive quantisation), not from extra bits.
+            var maxRate = (bitRate * 3 / 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var bufSize = (bitRate * 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var average = bitRate.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            if (useNvenc)
+            {
+                args.AddRange([
+                    "-c:v", "h264_nvenc",
+                    "-preset", veryHigh ? "p7" : "p6",
+                    "-tune", "hq",
+                    "-rc", "vbr",
+                    "-b:v", average,
+                    "-maxrate", maxRate,
+                    "-bufsize", bufSize,
+                    "-spatial-aq", "1",
+                    "-temporal-aq", "1",
+                    "-rc-lookahead", "32",
+                    "-profile:v", "high"
+                ]);
+            }
+            else
+            {
+                args.AddRange([
+                    "-c:v", "libx264",
+                    "-preset", veryHigh ? "slow" : "medium",
+                    "-b:v", average,
+                    "-maxrate", maxRate,
+                    "-bufsize", bufSize,
+                    "-profile:v", "high"
+                ]);
+            }
+        }
+        else if (useNvenc)
+        {
+            var cq = veryHigh ? "16" : "18";
             args.AddRange([
                 "-c:v", "h264_nvenc",
-                "-preset", _settings.EncodingQuality == EncodingQuality.VeryHigh ? "p7" : "p6",
+                "-preset", veryHigh ? "p7" : "p6",
                 "-tune", "hq",
                 "-rc", "vbr",
                 "-cq", cq,
@@ -197,10 +245,10 @@ public sealed class VideoProcessingService : IVideoProcessingService
         }
         else
         {
-            var crf = _settings.EncodingQuality == EncodingQuality.VeryHigh ? "16" : "18";
+            var crf = veryHigh ? "16" : "18";
             args.AddRange([
                 "-c:v", "libx264",
-                "-preset", _settings.EncodingQuality == EncodingQuality.VeryHigh ? "slow" : "medium",
+                "-preset", veryHigh ? "slow" : "medium",
                 "-crf", crf,
                 "-profile:v", "high"
             ]);
@@ -218,6 +266,21 @@ public sealed class VideoProcessingService : IVideoProcessingService
         args.AddRange(["-progress", "pipe:1", "-nostats", output]);
         return args;
     }
+
+    private void LogSizeComparison(string card, long sourceBytes, long outputBytes)
+    {
+        var percent = EncodingBudget.SizeDifferencePercent(sourceBytes, outputBytes);
+        var line = $"{card}: size original {FormatSize(sourceBytes)} → processed {FormatSize(outputBytes)} " +
+                   $"({(outputBytes >= sourceBytes ? "+" : "−")}{FormatSize(Math.Abs(outputBytes - sourceBytes))}, {percent:+0.0;-0.0}%).";
+        if (_settings.MatchSourceFileSize && Math.Abs(percent) > _settings.FileSizeTolerancePercent)
+            _log.Error(line + $" Outside the {_settings.FileSizeTolerancePercent:0}% tolerance.");
+        else
+            _log.Info(line);
+    }
+
+    private static string FormatSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / 1024d / 1024d:0.0} MB"
+        : $"{bytes / 1024d:0} KB";
 
     private async Task<(int ExitCode, string StdErr)> RunFfmpegWithProgressAsync(
         IReadOnlyList<string> arguments,

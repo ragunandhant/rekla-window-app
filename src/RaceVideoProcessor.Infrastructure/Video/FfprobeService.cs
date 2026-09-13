@@ -50,7 +50,21 @@ public sealed class FfprobeService : IFfprobeService
         if (frameRate <= 0)
             frameRate = ParseFraction(GetString(video, "r_frame_rate"));
 
-        return new VideoMetadata(path, width, height, duration, frameRate, videoCodec, audioCodec, pixelFormat);
+        // Bitrates drive the size-matched encode. Some containers omit a stream's
+        // bit_rate, so the format bitrate and file size are kept as fallbacks.
+        var videoBitRate = ParseLong(GetString(video, "bit_rate"));
+        var audioBitRate = audio.ValueKind == JsonValueKind.Undefined ? null : ParseLong(GetString(audio, "bit_rate"));
+        long? formatBitRate = null;
+        long? size = null;
+        if (root.TryGetProperty("format", out var fmt))
+        {
+            formatBitRate = ParseLong(GetString(fmt, "bit_rate"));
+            size = ParseLong(GetString(fmt, "size"));
+        }
+        size ??= new FileInfo(path).Length;
+
+        return new VideoMetadata(path, width, height, duration, frameRate, videoCodec, audioCodec, pixelFormat,
+            videoBitRate, audioBitRate, formatBitRate, size);
     }
 
     private static string? GetString(JsonElement element, string property)
@@ -60,6 +74,9 @@ public sealed class FfprobeService : IFfprobeService
 
     private static int GetInt(JsonElement element, string property)
         => element.TryGetProperty(property, out var value) && value.TryGetInt32(out var parsed) ? parsed : 0;
+
+    private static long? ParseLong(string? value)
+        => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0 ? parsed : null;
 
     private static double ParseDouble(string? value)
         => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
