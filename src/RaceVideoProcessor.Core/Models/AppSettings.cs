@@ -47,8 +47,9 @@ public sealed class AppSettings
     // Window placement, so the application reopens where the operator left it.
     public double WindowWidth { get; set; } = 1500;
     public double WindowHeight { get; set; } = 950;
-    public double WindowLeft { get; set; } = double.NaN;
-    public double WindowTop { get; set; } = double.NaN;
+    /// <summary>Null until the window has been placed. Never NaN: JSON cannot represent it.</summary>
+    public double? WindowLeft { get; set; }
+    public double? WindowTop { get; set; }
     public bool WindowMaximized { get; set; }
 
     public void Normalize()
@@ -69,6 +70,11 @@ public sealed class AppSettings
 
         WindowWidth = Math.Clamp(double.IsFinite(WindowWidth) ? WindowWidth : 1500, 1100, 6000);
         WindowHeight = Math.Clamp(double.IsFinite(WindowHeight) ? WindowHeight : 950, 700, 4000);
+
+        // A non-finite coordinate cannot be serialised, and would be meaningless
+        // anyway; drop it and let the window centre itself.
+        if (WindowLeft is { } left && !double.IsFinite(left)) WindowLeft = null;
+        if (WindowTop is { } top && !double.IsFinite(top)) WindowTop = null;
     }
 
     private static string NormalizeHexColor(string? value, string fallback)

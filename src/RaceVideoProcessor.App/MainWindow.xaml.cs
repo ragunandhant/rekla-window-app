@@ -27,12 +27,13 @@ public partial class MainWindow : Window
             Height = Math.Max(MinHeight, _settings.WindowHeight);
         }
 
-        if (double.IsFinite(_settings.WindowLeft) && double.IsFinite(_settings.WindowTop) &&
-            IsOnScreen(_settings.WindowLeft, _settings.WindowTop, Width, Height))
+        if (_settings.WindowLeft is { } savedLeft && _settings.WindowTop is { } savedTop &&
+            double.IsFinite(savedLeft) && double.IsFinite(savedTop) &&
+            IsOnScreen(savedLeft, savedTop, Width, Height))
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
-            Left = _settings.WindowLeft;
-            Top = _settings.WindowTop;
+            Left = savedLeft;
+            Top = savedTop;
         }
 
         if (_settings.WindowMaximized)

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using RaceVideoProcessor.Core.Interfaces;
 using RaceVideoProcessor.Core.Models;
@@ -11,7 +12,12 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
     private readonly string _connectionString;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
-        WriteIndented = false
+        WriteIndented = false,
+
+        // Settings are written on startup and on every save. A non-finite double
+        // anywhere in them would otherwise throw and take the application down
+        // before its window ever appears.
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
     };
 
     public SqliteLocalStateRepository(string databasePath)
