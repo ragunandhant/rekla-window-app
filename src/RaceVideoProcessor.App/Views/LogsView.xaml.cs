@@ -15,13 +15,13 @@ public partial class LogsView : UserControl
         Unloaded += OnUnloaded;
     }
 
-    // Keep the newest line in view, the way a console tail behaves.
+    // Keep the newest row in view, the way a console tail behaves.
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (_observed is not null || LogList.ItemsSource is not INotifyCollectionChanged collection)
+        if (_observed is not null || LogGrid.ItemsSource is not INotifyCollectionChanged collection)
             return;
         _observed = collection;
-        _observed.CollectionChanged += OnLogLinesChanged;
+        _observed.CollectionChanged += OnLogsChanged;
         ScrollToEnd();
     }
 
@@ -29,19 +29,19 @@ public partial class LogsView : UserControl
     {
         if (_observed is null)
             return;
-        _observed.CollectionChanged -= OnLogLinesChanged;
+        _observed.CollectionChanged -= OnLogsChanged;
         _observed = null;
     }
 
-    private void OnLogLinesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void OnLogsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action == NotifyCollectionChangedAction.Add)
+        if (e.Action == NotifyCollectionChangedAction.Add && IsVisible)
             ScrollToEnd();
     }
 
     private void ScrollToEnd()
     {
-        if (LogList.Items.Count > 0)
-            LogList.ScrollIntoView(LogList.Items[LogList.Items.Count - 1]);
+        if (LogGrid.Items.Count > 0)
+            LogGrid.ScrollIntoView(LogGrid.Items[LogGrid.Items.Count - 1]);
     }
 }

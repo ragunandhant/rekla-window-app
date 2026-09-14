@@ -12,7 +12,7 @@ public sealed class AppSettings
     /// defaults, which are invisible to the operator as "defaults".
     /// Absent from settings written before versioning, which therefore read as 0.
     /// </summary>
-    public const int CurrentSettingsVersion = 4;
+    public const int CurrentSettingsVersion = 5;
 
     public const string DefaultBackendBaseUrl = "https://rekla-backend-fx7x9.ondigitalocean.app";
 
@@ -45,8 +45,20 @@ public sealed class AppSettings
 
     public string MediaUploadUrl { get; set; } = DefaultBackendBaseUrl + "/v1/media/upload";
 
-    /// <summary>After processing, upload the video and assign it to the player.</summary>
+    /// <summary>
+    /// Run the selected video through FFmpeg to add the scoreboard. OFF: the
+    /// selected file is used as it is — uploaded directly when upload is ON.
+    /// Independent of <see cref="UploadEnabled"/>; both apply to the next operation.
+    /// </summary>
+    public bool ProcessingEnabled { get; set; } = true;
+
+    /// <summary>Upload the video (processed, or the selected file when processing is OFF) and assign it to the player.</summary>
     public bool UploadEnabled { get; set; } = true;
+
+    /// <summary>Desktop interface scale. Never affects the video.</summary>
+    public double UiZoom { get; set; } = 1.0;
+
+    public static readonly double[] ZoomLevels = [0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5];
 
     // ---- Work context, restored on the next launch --------------------------
 
@@ -94,11 +106,6 @@ public sealed class AppSettings
     public EncoderPreference EncoderPreference { get; set; } = EncoderPreference.Auto;
     public EncodingQuality EncodingQuality { get; set; } = EncodingQuality.VeryHigh;
 
-    public double FontSizeScale { get; set; } = 1.0;
-    public string ScoreboardBackgroundColor { get; set; } = "#063322";
-    public string ScoreboardTextColor { get; set; } = "#F5F5ED";
-    public string ScoreboardAccentColor { get; set; } = "#D9F24F";
-    public double ScoreboardOpacity { get; set; } = 1.0;
     public bool AllowOverwriteExistingOutput { get; set; } = false;
 
     /// <summary>
@@ -128,12 +135,8 @@ public sealed class AppSettings
         DemoEntryIntervalSeconds = Math.Clamp(DemoEntryIntervalSeconds, 1, 3600);
         DemoReleasedCount = Math.Clamp(DemoReleasedCount, 1, 100);
         CompletionTimeDisplaySeconds = Math.Clamp(CompletionTimeDisplaySeconds, 0.5, 30.0);
-        FontSizeScale = Math.Clamp(FontSizeScale, 0.65, 1.75);
         FileSizeTolerancePercent = Math.Clamp(double.IsFinite(FileSizeTolerancePercent) ? FileSizeTolerancePercent : 10, 1, 100);
-        ScoreboardOpacity = Math.Clamp(ScoreboardOpacity, 0.1, 1.0);
-        ScoreboardBackgroundColor = NormalizeHexColor(ScoreboardBackgroundColor, "#063322");
-        ScoreboardTextColor = NormalizeHexColor(ScoreboardTextColor, "#F5F5ED");
-        ScoreboardAccentColor = NormalizeHexColor(ScoreboardAccentColor, "#D9F24F");
+        UiZoom = ZoomLevels.OrderBy(level => Math.Abs(level - (double.IsFinite(UiZoom) ? UiZoom : 1.0))).First();
         if (string.IsNullOrWhiteSpace(TimingFormat))
             TimingFormat = TimingFormatter.DefaultFormat;
 
@@ -173,16 +176,9 @@ public sealed class AppSettings
         if (string.Equals(FontFilePath?.Trim(), @"C:\Windows\Fonts\segoeui.ttf", StringComparison.OrdinalIgnoreCase))
             FontFilePath = string.Empty;
 
-        // Earlier scoreboard palettes (v1 teal, v2–v3 gold), superseded by the
-        // Elegant Prestige design: mindaro accent, off-white text, opaque panel.
-        if (ScoreboardAccentColor?.ToUpperInvariant() is "#21C7A8" or "#E3B23C")
-            ScoreboardAccentColor = "#D9F24F";
-        if (string.Equals(ScoreboardTextColor, "#FFFFFF", StringComparison.OrdinalIgnoreCase))
-            ScoreboardTextColor = "#F5F5ED";
-        if (ScoreboardBackgroundColor?.ToUpperInvariant() is "#101725" or "#0A1020")
-            ScoreboardBackgroundColor = "#063322";
-        if (Math.Abs(ScoreboardOpacity - 0.84) < 0.0001 || Math.Abs(ScoreboardOpacity - 0.88) < 0.0001)
-            ScoreboardOpacity = 1.0;
+        // Scoreboard colours, opacity and text scale were settings up to v4. The
+        // scoreboard now follows its design HTML exactly, so they no longer exist;
+        // stored values are simply ignored when read.
 
         SettingsVersion = CurrentSettingsVersion;
     }
@@ -190,13 +186,4 @@ public sealed class AppSettings
     private static string OrDefault(string? value, string fallback)
         => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
-    private static string NormalizeHexColor(string? value, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return fallback;
-        var clean = value.Trim().TrimStart('#');
-        if (clean.Length != 6 || clean.Any(c => !Uri.IsHexDigit(c)))
-            return fallback;
-        return "#" + clean.ToUpperInvariant();
-    }
 }

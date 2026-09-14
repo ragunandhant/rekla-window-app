@@ -11,209 +11,135 @@
         ResizeMode="CanResize"
         UseLayoutRounding="True">
 
-    <!-- The window keeps the standard Windows chrome: minimise, maximise/restore,
-         close, double-click-to-maximise, snap and per-monitor DPI all come from
-         the OS and behave exactly as they do in any other desktop application. -->
+    <!-- Standard Windows chrome: minimise, maximise, snap and per-monitor DPI come from the OS. -->
 
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Control" Key="OemPlus" Command="{Binding ZoomInCommand}" />
+        <KeyBinding Modifiers="Control" Key="Add" Command="{Binding ZoomInCommand}" />
+        <KeyBinding Modifiers="Control" Key="OemMinus" Command="{Binding ZoomOutCommand}" />
+        <KeyBinding Modifiers="Control" Key="Subtract" Command="{Binding ZoomOutCommand}" />
+        <KeyBinding Modifiers="Control" Key="D0" Command="{Binding ResetZoomCommand}" />
+        <KeyBinding Modifiers="Control" Key="NumPad0" Command="{Binding ResetZoomCommand}" />
+    </Window.InputBindings>
+
+    <!-- Zoom scales the whole interface, header included. It never touches the video. -->
     <Grid>
+        <Grid.LayoutTransform>
+            <ScaleTransform ScaleX="{Binding UiZoom}" ScaleY="{Binding UiZoom}" />
+        </Grid.LayoutTransform>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- ================= Top bar ================= -->
-        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
-            <DockPanel Height="60" Margin="20,0" LastChildFill="True">
-
-                <!-- Docked first, so these keep their space at any window width. -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Work"
-                                 Command="{Binding NavigateCommand}" CommandParameter="Work"
-                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Work}" />
-                    <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Races"
-                                 Command="{Binding NavigateCommand}" CommandParameter="Races"
-                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Races}" />
-                    <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Settings"
-                                 Command="{Binding NavigateCommand}" CommandParameter="Settings"
-                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Settings}" />
-                    <RadioButton Style="{StaticResource PageTab}" GroupName="Page" Content="Logs"
-                                 Command="{Binding NavigateCommand}" CommandParameter="Logs"
-                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Logs}" />
-                    <Button Content="REFRESH" Command="{Binding PollNowCommand}"
-                            Style="{StaticResource Btn.Secondary}" Margin="10,0,0,0" />
-                </StackPanel>
-
-                <TextBlock DockPanel.Dock="Left" Text="RACE VIDEO PROCESSOR" Style="{StaticResource Txt.Heading}"
-                           VerticalAlignment="Center" Margin="0,0,18,0" />
-
-                <!-- Fills what is left; the least critical items give way first. -->
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ClipToBounds="True">
-                    <Border Style="{StaticResource Badge}" Background="{StaticResource NeutralSoft}" Margin="0,0,12,0">
-                        <TextBlock Text="{Binding ModeLabel}" Style="{StaticResource Txt.Badge}"
-                                   Foreground="{StaticResource Neutral}" />
-                    </Border>
-                    <Ellipse Style="{StaticResource Dot}" Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
-                    <TextBlock Text="{Binding ApiStatusText}" FontWeight="SemiBold" VerticalAlignment="Center"
-                               Foreground="{StaticResource Text}" Margin="0,0,18,0" />
-                    <TextBlock Text="Last sync" Style="{StaticResource Txt.Label}" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding LastSyncText}" VerticalAlignment="Center" Margin="7,0,0,0"
-                               Foreground="{StaticResource Text}" />
-                </StackPanel>
-            </DockPanel>
-        </Border>
-
-        <!-- ================= Body ================= -->
-        <Grid Grid.Row="1">
-
-            <!-- ========== Work: entry list + workspace ========== -->
-            <Grid Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Work}">
+        <!-- ================= Header: workflow controls left, navigation right ================= -->
+        <Border Background="{StaticResource Header}">
+            <Grid Margin="14,8">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="370" MinWidth="250" MaxWidth="620" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" MinWidth="400" />
-                </Grid.ColumnDefinitions>
-
-                <!-- Entry list. Always visible, always navigable: nothing in this
-                     panel is ever disabled because of another entry's state. -->
-                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
-                    <Grid Margin="16,16,10,12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Style="{StaticResource Txt.Title}">
-                                <Run Text="ENTRIES" /> <Run Text="{Binding SelectedCategoryLabel, Mode=OneWay}" Foreground="{StaticResource TextMuted}" FontSize="{StaticResource Size.Heading}" />
-                            </TextBlock>
-                            <TextBlock Grid.Column="1" Text="{Binding EntryCountSummary}" Style="{StaticResource Txt.Muted}"
-                                       VerticalAlignment="Center" />
-                        </Grid>
-
-                        <!-- Search: card number, player, location, user id, file name -->
-                        <Grid Grid.Row="1" Margin="0,0,0,12">
-                            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Text="Search card, name, location, user id…"
-                                       Foreground="{StaticResource TextFaint}" IsHitTestVisible="False"
-                                       VerticalAlignment="Center" Margin="13,0,0,0"
-                                       Visibility="{Binding SearchText, Converter={StaticResource TextToVisibility}, ConverterParameter=invert}" />
-                        </Grid>
-
-                        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="All"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="All"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=All}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Pending"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Pending"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Pending}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="In progress"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Active"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Active}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Completed"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Completed"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Completed}" />
-                            <RadioButton Style="{StaticResource Chip}" GroupName="Filter" Content="Failed"
-                                         Command="{Binding SetFilterCommand}" CommandParameter="Failed"
-                                         IsChecked="{Binding Filter, Mode=OneWay, Converter={StaticResource FilterToBool}, ConverterParameter=Failed}" />
-                        </WrapPanel>
-
-                        <TextBlock Grid.Row="3" Style="{StaticResource EmptyState}" VerticalAlignment="Top"
-                                   Text="{Binding EmptyListText}"
-                                   Visibility="{Binding HasVisibleEntries, Converter={StaticResource BoolToVisibility}, ConverterParameter=invert}" />
-
-                        <ListBox Grid.Row="3"
-                                 ItemsSource="{Binding VisibleEntries}"
-                                 SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
-                                 ItemContainerStyle="{StaticResource EntryRow}"
-                                 VirtualizingStackPanel.IsVirtualizing="True"
-                                 VirtualizingStackPanel.VirtualizationMode="Recycling"
-                                 Visibility="{Binding HasVisibleEntries, Converter={StaticResource BoolToVisibility}}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-
-                                        <!-- The card number is the entry identifier, so it leads. -->
-                                        <TextBlock Text="{Binding CardNumber}" FontSize="17" FontWeight="Bold"
-                                                   Foreground="{StaticResource Text}" />
-
-                                        <Border Grid.Column="1" Style="{StaticResource Badge}"
-                                                Background="{Binding DisplayStatus, Converter={StaticResource StatusBrush}, ConverterParameter=soft}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="{Binding StatusGlyph}" Style="{StaticResource Txt.Badge}"
-                                                           Foreground="{Binding DisplayStatus, Converter={StaticResource StatusBrush}}"
-                                                           Margin="0,0,5,0" />
-                                                <TextBlock Text="{Binding StatusText}" Style="{StaticResource Txt.Badge}"
-                                                           Foreground="{Binding DisplayStatus, Converter={StaticResource StatusBrush}}" />
-                                            </StackPanel>
-                                        </Border>
-
-                                        <TextBlock Grid.Row="1" Text="{Binding PrimaryDisplay}"
-                                                   Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EntryDateDisplay}"
-                                                   Style="{StaticResource Txt.Muted}" Margin="10,4,0,0" HorizontalAlignment="Right" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Grid>
-                </Border>
-
-                <GridSplitter Grid.Column="1" />
-
-                <views:WorkspaceView Grid.Column="2" />
-            </Grid>
-
-            <!-- ========== Races ========== -->
-            <views:RacesView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Races}" />
-
-            <!-- ========== Settings ========== -->
-            <views:SettingsView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Settings}" />
-
-            <!-- ========== Logs ========== -->
-            <views:LogsView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Logs}" />
-        </Grid>
-
-        <!-- ================= Status bar ================= -->
-        <Border Grid.Row="2" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
-            <Grid Height="34" Margin="20,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,24,0">
-                    <Ellipse Style="{StaticResource Dot}" Width="8" Height="8"
-                             Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
-                    <TextBlock Text="{Binding ApiStatusText}" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
+                <WrapPanel VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Margin="0,3,22,3">
+                        <TextBlock Text="Race" Style="{StaticResource HeaderLabel}" />
+                        <ComboBox Width="250" Padding="9,5" VerticalAlignment="Center"
+                                  ItemsSource="{Binding Races}" SelectedItem="{Binding HeaderRace, Mode=TwoWay}"
+                                  ToolTip="Switch the race. Refused while an operation is running.">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding RaceName}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,3,22,3">
+                        <TextBlock Text="Category" Style="{StaticResource HeaderLabel}" />
+                        <RadioButton Style="{StaticResource HeaderChip}" GroupName="Category" Content="200 Meter"
+                                     Command="{Binding SetCategoryCommand}" CommandParameter="Meter200"
+                                     IsChecked="{Binding SelectedCategory, Mode=OneWay, Converter={StaticResource EqualsParam}, ConverterParameter=Meter200}" />
+                        <RadioButton Style="{StaticResource HeaderChip}" GroupName="Category" Content="300 Meter"
+                                     Command="{Binding SetCategoryCommand}" CommandParameter="Meter300"
+                                     IsChecked="{Binding SelectedCategory, Mode=OneWay, Converter={StaticResource EqualsParam}, ConverterParameter=Meter300}" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,3,22,3" ToolTip="{Binding WorkflowModeText}">
+                        <TextBlock Text="Processing" Style="{StaticResource HeaderLabel}" />
+                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding ProcessingEnabled, Mode=TwoWay}"
+                                  AutomationProperties.Name="Processing" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,3" ToolTip="{Binding WorkflowModeText}">
+                        <TextBlock Text="Upload" Style="{StaticResource HeaderLabel}" />
+                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding UploadEnabled, Mode=TwoWay}"
+                                  AutomationProperties.Name="Upload" />
+                    </StackPanel>
+                </WrapPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <RadioButton Style="{StaticResource NavTab}" GroupName="Page" Content="Races"
+                                 Command="{Binding NavigateCommand}" CommandParameter="Races"
+                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Races}" />
+                    <RadioButton Style="{StaticResource NavTab}" GroupName="Page" Content="Settings"
+                                 Command="{Binding NavigateCommand}" CommandParameter="Settings"
+                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Settings}" />
+                    <RadioButton Style="{StaticResource NavTab}" GroupName="Page" Content="Logs"
+                                 Command="{Binding NavigateCommand}" CommandParameter="Logs"
+                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Logs}" />
+                    <RadioButton Style="{StaticResource NavTab}" GroupName="Page" Content="Database"
+                                 Command="{Binding NavigateCommand}" CommandParameter="Database"
+                                 IsChecked="{Binding ActivePage, Mode=OneWay, Converter={StaticResource PageToBool}, ConverterParameter=Database}" />
+
+                    <Border Width="1" Background="{StaticResource HeaderEdge}" Margin="10,4" />
+
+                    <Button Style="{StaticResource HeaderIconButton}" Content="−" Command="{Binding ZoomOutCommand}" ToolTip="Zoom out (Ctrl −)" />
+                    <TextBlock Text="{Binding UiZoom, Converter={StaticResource ZoomPercent}}" Width="42" TextAlignment="Center"
+                               Foreground="{StaticResource HeaderText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HeaderIconButton}" Content="+" Command="{Binding ZoomInCommand}" ToolTip="Zoom in (Ctrl +)" />
+                    <Button Style="{StaticResource Btn.Link}" Content="Reset" Command="{Binding ResetZoomCommand}"
+                            Foreground="{StaticResource HeaderSub}" Margin="8,0,0,0" VerticalAlignment="Center"
+                            ToolTip="Reset zoom (Ctrl 0)"
+                            Visibility="{Binding IsZoomChanged, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ================= Pages ================= -->
+        <Grid Grid.Row="1">
+            <views:WorkspaceView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Work}" />
+            <views:RacesView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Races}" />
+            <views:SettingsView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Settings}" />
+            <views:LogsView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Logs}" />
+            <views:DatabaseView Visibility="{Binding ActivePage, Converter={StaticResource PageToVisibility}, ConverterParameter=Database}" />
+        </Grid>
+
+        <!-- ================= Status bar ================= -->
+        <Border Grid.Row="2" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <Grid Height="28" Margin="14,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Style="{StaticResource Dot}" Width="9" Height="9"
+                             Fill="{Binding IsBusy, Converter={StaticResource ConnectedBrush}, ConverterParameter=busy}" />
+                    <TextBlock Text="{Binding StatusBarText}" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="0,0,24,0"
-                           Style="{StaticResource Txt.Muted}" Text="{Binding ProcessingSummary}" />
-
-                <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="0,0,24,0"
-                           Style="{StaticResource Txt.Muted}" Text="{Binding EncoderDisplay}" />
-
-                <TextBlock Grid.Column="4" VerticalAlignment="Center" Style="{StaticResource Txt.Muted}"
-                           Text="{Binding FontDisplay}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Style="{StaticResource Dot}" Width="8" Height="8"
+                             Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
+                    <TextBlock Style="{StaticResource Txt.Muted}" VerticalAlignment="Center">
+                        <Run Text="{Binding ModeLabel, Mode=OneWay}" /> <Run Text="·" /> <Run Text="{Binding ApiStatusText, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Text="  |  SQLite  |  " Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding EncoderDisplay}" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
+                    <TextBlock Text="  |  " Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding AppVersion}" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

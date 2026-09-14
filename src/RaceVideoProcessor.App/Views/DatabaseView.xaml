@@ -1,0 +1,59 @@
+<UserControl x:Class="RaceVideoProcessor.App.Views.DatabaseView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- The local store: what it holds, where it is, and a way to back it up. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="18,14,18,14" MaxWidth="900" HorizontalAlignment="Left">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="Database" Style="{StaticResource Txt.Title}" />
+                    <TextBlock Text="Races, entry states and settings are kept in one local SQLite database." Style="{StaticResource Txt.Muted}" />
+                </StackPanel>
+                <Button Content="⟳  Refresh" Command="{Binding RefreshDatabaseCommand}" Style="{StaticResource Btn.Secondary}"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Padding="12,6" Margin="0" />
+            </Grid>
+
+            <Border Style="{StaticResource Card}" Margin="0,14,0,0" Padding="18">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Races" Style="{StaticResource Txt.Label}" />
+                        <TextBlock Text="{Binding DatabaseInfo.Races, FallbackValue=—}" Style="{StaticResource Txt.Display}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Entry records" Style="{StaticResource Txt.Label}" />
+                        <TextBlock Text="{Binding DatabaseInfo.EntryRecords, FallbackValue=—}" Style="{StaticResource Txt.Display}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Size" Style="{StaticResource Txt.Label}" />
+                        <TextBlock Text="{Binding DatabaseSizeText}" Style="{StaticResource Txt.Display}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3">
+                        <TextBlock Text="Schema version" Style="{StaticResource Txt.Label}" />
+                        <TextBlock Text="{Binding DatabaseInfo.SchemaVersion, FallbackValue=—}" Style="{StaticResource Txt.Display}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,12,0,0" Padding="18">
+                <StackPanel>
+                    <TextBlock Text="Location" Style="{StaticResource Txt.Label}" />
+                    <TextBlock Text="{Binding DatabaseInfo.Path, FallbackValue=—}" Style="{StaticResource Txt.Mono}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Back up database now" Command="{Binding BackupDatabaseCommand}" Padding="14,7" />
+                        <Button Content="Open data folder" Command="{Binding OpenDataFolderCommand}" Style="{StaticResource Btn.Secondary}" Padding="14,7" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding LastBackupText}" Style="{StaticResource FormHelp}" />
+                    <TextBlock Style="{StaticResource FormHelp}"
+                               Text="Schema changes are applied in place when the application starts; existing races, entries and processing states are kept." />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

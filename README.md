@@ -16,13 +16,26 @@ One video at a time, always chosen by the operator. There is no bulk processing 
 
 ## Workflow
 
-- Selecting a video starts processing. With **Upload ON** the processed file is then streamed to `/v1/media/upload` (field `upload`, real byte progress), and `data.link[0]` is PATCHed to `/v1/races/{raceId}/player/{playerId}/video?type={type}` with `{ videoLink, marker }`.
-- With **Upload OFF** the job stops after processing: nothing is uploaded or assigned, and that is not an error.
+Two independent header switches, **Processing** and **Upload**, decide what selecting a video does. Both are remembered and apply to the next video; a running operation keeps the mode it started with.
+
+| Processing | Upload | Selecting a video… |
+|---|---|---|
+| ON | ON | FFmpeg adds the scoreboard → the processed file is uploaded → PATCH assigns it → next entry |
+| ON | OFF | FFmpeg adds the scoreboard → the processed file is kept locally; nothing remote |
+| OFF | ON | no FFmpeg, no copy: the selected file itself is uploaded (its own filename) → PATCH → next entry |
+| OFF | OFF | the selection is kept; nothing runs and nothing is reported as failed |
+
+- Uploads stream to `/v1/media/upload` (field `upload`, real byte progress), and `data.link[0]` is PATCHed to `/v1/races/{raceId}/player/{playerId}/video?type={type}` with `{ videoLink, marker }`.
+- The mode is stored per entry (`workflow_mode`), so a retry or a restart repeats the same kind of operation: a failed direct upload retries the original file and never starts processing.
 - **CANCEL PROCESSING** (shown only while processing) stops FFmpeg, discards the incomplete output and prevents upload and assignment.
-- After a fully completed entry, the next eligible entry of the same race and category is selected, and the app waits for its video. The **Next** preview shows which entry that will be.
+- After a fully completed entry, the entries are refreshed and the next eligible entry of the same race and category is selected; the app waits for its video. If none is left, the next entry the API sends is selected as soon as it arrives.
 - An entry that already has a video asks **Cancel / Skip / Replace**.
 - Stages persist separately. A failed upload retries from the processed file; a failed assignment retries only the PATCH with the link already obtained. After a crash, an interrupted upload or assignment resumes automatically.
 - Login uses the configured email and password (stored DPAPI-encrypted). A 401 triggers one fresh login and one retry of the same request. Passwords, tokens and the Authorization header are never logged.
+
+## Scoreboard
+
+The video scoreboard reproduces `scorecard_center_number_matched_to_player_text.html`: three boxes (primary "name, location" left, cart number centre, secondary right), with the page's own fonts — Orbitron 700 and Noto Sans Tamil 500, bundled under `Fonts/Scoreboard` (OFL). Plates are painted with Skia and HarfBuzz from the page's CSS values at a 1920-px-wide canvas scaled to the video width, then overlaid by FFmpeg. Text sizes follow the page's `fitSingleLine()` exactly as Chrome runs it. The closing timer (final 4 s) is the page's card box widened to its content.
 
 ## What is implemented
 

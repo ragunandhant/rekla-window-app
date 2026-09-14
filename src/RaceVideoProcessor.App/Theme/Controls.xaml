@@ -179,26 +179,165 @@
         <Setter Property="BorderBrush" Value="{StaticResource Danger}" />
     </Style>
 
-    <!-- ========== Filter chips and page tabs (RadioButtons) ========== -->
 
-    <Style x:Key="Chip" TargetType="RadioButton">
-        <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+    
+    <!-- ========== Header (dark green bar) ========== -->
+
+    <!-- Segmented choice on the header: 200 Meter / 300 Meter. -->
+    <Style x:Key="HeaderChip" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource HeaderText}" />
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Margin" Value="0,0,6,6" />
+        <Setter Property="Margin" Value="0,0,4,0" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Chrome" Background="{StaticResource Surface}"
-                            BorderBrush="{StaticResource Border}" BorderThickness="1"
-                            CornerRadius="{StaticResource Radius.Pill}" Padding="12,6">
+                    <Border x:Name="Chrome" Background="Transparent" BorderBrush="{StaticResource HeaderEdge}"
+                            BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="11,5">
                         <ContentPresenter VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceSunken}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HeaderDark}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SwitchOn}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource SwitchOn}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource HeaderText}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ON/OFF switch. The state is also spelled out beside it, never shown by position alone. -->
+    <Style x:Key="Switch" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource HeaderText}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <StackPanel Orientation="Horizontal" Background="Transparent">
+                        <Border x:Name="Track" Width="38" Height="20" CornerRadius="10"
+                                Background="#7A8A80" BorderBrush="{StaticResource HeaderEdge}" BorderThickness="1">
+                            <Ellipse x:Name="Knob" Width="14" Height="14" Fill="White"
+                                     HorizontalAlignment="Left" Margin="2,0" />
+                        </Border>
+                        <TextBlock x:Name="State" Text="OFF" Width="26" Margin="7,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{TemplateBinding Foreground}" FontWeight="Bold" />
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{StaticResource SwitchOn}" />
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource SwitchOn}" />
+                            <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                            <Setter TargetName="State" Property="Text" Value="ON" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource HeaderText}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.6" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Top-right navigation. The active page is filled, so it reads without colour alone. -->
+    <Style x:Key="NavTab" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource HeaderText}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="2,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="{StaticResource Radius.Control}" Padding="11,6">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HeaderDark}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Surface}" />
+                            <Setter Property="Foreground" Value="{StaticResource Header}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource HeaderText}" />
+                            <Setter TargetName="Chrome" Property="BorderThickness" Value="1" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Small square buttons on the header: zoom − and +. -->
+    <Style x:Key="HeaderIconButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource HeaderText}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Heading}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Width" Value="26" />
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="Transparent" BorderBrush="{StaticResource HeaderEdge}"
+                            BorderThickness="1" CornerRadius="{StaticResource Radius.Control}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HeaderDark}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HeaderLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource HeaderSub}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+
+    <!-- Entry status filter with its count: "Uploaded  12". -->
+    <Style x:Key="FilterChip" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource Text}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,5,5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Chrome" Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}"
+                            BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="9,5">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource BorderStrong}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Accent}" />
@@ -214,32 +353,26 @@
         </Setter>
     </Style>
 
-    <!-- Chips on the dark Elegant Prestige header: mindaro when selected. -->
-    <Style x:Key="PrestigeChip" TargetType="RadioButton">
-        <Setter Property="Foreground" Value="{StaticResource PrestigeText}" />
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+    <!-- Settings category list. -->
+    <Style x:Key="SideNavItem" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource Text}" />
         <Setter Property="FontSize" Value="{StaticResource Size.Body}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="Margin" Value="0,0,0,4" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Chrome" Background="Transparent"
-                            BorderBrush="{StaticResource PrestigeEdge}" BorderThickness="1" Padding="14,7">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="{StaticResource Radius.Control}" Padding="12,9">
                         <ContentPresenter VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PrestigeLight}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceSunken}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Mindaro}" />
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Mindaro}" />
-                            <Setter Property="Foreground" Value="{StaticResource PrestigeDark}" />
-                        </Trigger>
-                        <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource PrestigeText}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentSoft}" />
+                            <Setter Property="Foreground" Value="{StaticResource AccentDark}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -247,11 +380,86 @@
         </Setter>
     </Style>
 
-    <Style x:Key="PageTab" TargetType="RadioButton" BasedOn="{StaticResource Chip}">
-        <Setter Property="FontSize" Value="{StaticResource Size.Body}" />
-        <Setter Property="Margin" Value="0,0,8,0" />
+    <!-- Compact table action ("Select", "Edit", "Delete"). -->
+    <Style x:Key="Btn.Link" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource Accent}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="Transparent" Padding="2">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource AccentDark}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource TextFaint}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
+    <!-- ========== Tables ========== -->
+
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="{StaticResource Surface}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Border}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="RowBackground" Value="{StaticResource Surface}" />
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource SurfaceAlt}" />
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource SurfaceSunken}" />
+        <Setter Property="VerticalGridLinesBrush" Value="Transparent" />
+        <Setter Property="GridLinesVisibility" Value="Horizontal" />
+        <Setter Property="HeadersVisibility" Value="Column" />
+        <Setter Property="AutoGenerateColumns" Value="False" />
+        <Setter Property="CanUserAddRows" Value="False" />
+        <Setter Property="CanUserDeleteRows" Value="False" />
+        <Setter Property="CanUserResizeRows" Value="False" />
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="SelectionMode" Value="Single" />
+        <Setter Property="Foreground" Value="{StaticResource Text}" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Body}" />
+        <Setter Property="EnableRowVirtualization" Value="True" />
+    </Style>
+
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource SurfaceSunken}" />
+        <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="{StaticResource Size.Small}" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="BorderBrush" Value="{StaticResource Border}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+
+    <Style TargetType="DataGridCell">
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridCell">
+                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{StaticResource AccentSoft}" />
+                <Setter Property="Foreground" Value="{StaticResource Text}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    
     <!-- ========== Inputs ========== -->
 
     <Style TargetType="TextBox">
@@ -443,20 +651,7 @@
         </Setter>
     </Style>
 
-    <Style x:Key="LogRow" TargetType="ListBoxItem">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Padding" Value="4,2" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ListBoxItem">
-                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter />
-                    </Border>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
+    
     <Style TargetType="ToolTip">
         <Setter Property="Background" Value="{StaticResource Text}" />
         <Setter Property="Foreground" Value="{StaticResource Surface}" />

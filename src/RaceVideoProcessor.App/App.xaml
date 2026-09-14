@@ -15,13 +15,15 @@
             <conv:PageToBoolConverter x:Key="PageToBool" />
             <conv:FilterToBoolConverter x:Key="FilterToBool" />
             <conv:EqualsParameterConverter x:Key="EqualsParam" />
-            <conv:PathToImageConverter x:Key="PathToImage" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <conv:TextToVisibilityConverter x:Key="TextToVisibility" />
             <conv:EntryStatusToBrushConverter x:Key="StatusBrush" />
             <conv:BannerKindToBrushConverter x:Key="BannerBrush" />
             <conv:ConnectedToBrushConverter x:Key="ConnectedBrush" />
-            <conv:LogLineToBrushConverter x:Key="LogBrush" />
+            <conv:LogLevelToBrushConverter x:Key="LogLevelBrush" />
+            <conv:ZoomToPercentConverter x:Key="ZoomPercent" />
+            <conv:InverseBoolConverter x:Key="InverseBool" />
+            <conv:EqualsParameterToVisibilityConverter x:Key="EqualsToVisibility" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

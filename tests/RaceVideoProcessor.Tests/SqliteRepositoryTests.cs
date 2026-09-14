@@ -239,6 +239,67 @@ public sealed class SqliteRepositoryTests
     });
 
     [Fact]
+    public async Task AVersionTwoDatabaseGainsTheWorkflowModeWithoutLosingRows() => await WithDatabase(async db =>
+    {
+        // Built with the current schema, then the v3 column removed: exactly a v2 database with data in it.
+        var repo = await Open(db);
+        await repo.AddRaceAsync(RaceA);
+        var old = FullState(TestScopes.RaceA200, "m1", "100");
+        old.Mode = WorkflowMode.ProcessAndUpload;
+        await repo.UpsertEntryStateAsync(old);
+        await using (var connection = new SqliteConnection($"Data Source={db}"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE race_entry_state DROP COLUMN workflow_mode; PRAGMA user_version = 2;";
+            await command.ExecuteNonQueryAsync();
+        }
+        SqliteConnection.ClearAllPools();
+
+        var upgraded = await Open(db);
+        var kept = await upgraded.GetEntryStateAsync(TestScopes.RaceA200, "m1");
+        Assert.NotNull(kept);
+        Assert.Equal("100", kept!.CardNumber);
+        Assert.Null(kept.Mode);
+        Assert.Equal(3, (await upgraded.GetDatabaseInfoAsync()).SchemaVersion);
+
+        kept.Mode = WorkflowMode.DirectUpload;
+        kept.ProcessingStatus = LocalProcessingStatus.Skipped;
+        kept.UpdatedUtc = DateTimeOffset.UtcNow.AddMinutes(1);
+        await upgraded.UpsertEntryStateAsync(kept);
+        var reread = await upgraded.GetEntryStateAsync(TestScopes.RaceA200, "m1");
+        Assert.Equal(WorkflowMode.DirectUpload, reread!.Mode);
+        Assert.True(reread.IsDirect);
+    });
+
+    [Fact]
+    public async Task RacesCanBeRenamedAndCountedPerCategory() => await WithDatabase(async db =>
+    {
+        var repo = await Open(db);
+        await repo.AddRaceAsync(RaceA);
+        await repo.AddRaceAsync(RaceB);
+        await repo.UpsertEntryStateAsync(FullState(TestScopes.RaceA200, "m1", "100"));
+        await repo.UpsertEntryStateAsync(FullState(TestScopes.RaceA200, "m2", "101"));
+        await repo.UpsertEntryStateAsync(FullState(new RaceScope("AAA", RaceCategory.Meter300), "m1", "100"));
+
+        Assert.True(await repo.UpdateRaceAsync(RaceA with { RaceName = "Renamed", RaceDate = new DateOnly(2026, 10, 1) }));
+        Assert.False(await repo.UpdateRaceAsync(RaceA with { RaceId = "ZZZ" }));
+
+        var renamed = await repo.GetRaceAsync("aaa");
+        Assert.Equal("Renamed", renamed!.RaceName);
+        Assert.Equal(new DateOnly(2026, 10, 1), renamed.RaceDate);
+
+        var counts = await repo.GetRaceEntryCountsAsync();
+        Assert.Equal(new RaceEntryCounts(2, 1), counts["aaa"]);
+        Assert.False(counts.ContainsKey("BBB"));
+
+        var backup = Path.Combine(Path.GetDirectoryName(db)!, "Backups", "copy.db");
+        await repo.BackupAsync(backup);
+        var restored = new SqliteLocalStateRepository(backup);
+        Assert.Equal(3, await restored.CountEntryStatesAsync("AAA"));
+    });
+
+    [Fact]
     public async Task ThePasswordIsNotStoredInPlainTextAndRoundTrips() => await WithDatabase(async db =>
     {
         var repo = await Open(db);

@@ -17,11 +17,13 @@ public sealed class FileAppLog : IAppLog
     }
 
     public void Info(string message) => Write("INFO", message);
+    public void Warning(string message) => Write("WARNING", message);
     public void Error(string message) => Write("ERROR", message);
 
     private void Write(string level, string message)
     {
-        var line = $"[{DateTimeOffset.Now:HH:mm:ss}] {level,-5} {message}";
+        // Never pass credentials or tokens here: every line is shown on the Logs page and kept on disk.
+        var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {level,-7} {message}";
         lock (_gate)
         {
             File.AppendAllText(LogFilePath, line + Environment.NewLine);

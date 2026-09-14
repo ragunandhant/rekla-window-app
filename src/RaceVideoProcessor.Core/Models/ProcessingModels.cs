@@ -39,9 +39,4 @@ public sealed record ProcessingResult(
     VideoMetadata? OutputMetadata,
     bool UsedNvenc);
 
-public sealed record PreviewResult(
-    string NormalPreviewPath,
-    string FinalPreviewPath,
-    VideoMetadata SourceMetadata);
-
 public sealed record EncoderCapability(bool NvencAvailable, string DisplayName, string? Detail);

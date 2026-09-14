@@ -26,6 +26,15 @@ public sealed class EntryLocalState
 
     public LocalProcessingStatus ProcessingStatus { get; set; } = LocalProcessingStatus.VideoNotSelected;
 
+    /// <summary>The kind of operation last started for this entry; null before any.</summary>
+    public WorkflowMode? Mode { get; set; }
+
+    /// <summary>True when processing was OFF: the selected file itself is the upload.</summary>
+    public bool IsDirect => ProcessingStatus == LocalProcessingStatus.Skipped;
+
+    /// <summary>What an upload sends: the processed output, or the selected video in direct mode.</summary>
+    public string? UploadSourcePath => IsDirect ? LocalVideoPath : OutputPath;
+
     /// <summary>Processed video.</summary>
     public string? OutputPath { get; set; }
 
@@ -60,6 +69,7 @@ public sealed class EntryLocalState
                 case LocalProcessingStatus.Failed:
                 case LocalProcessingStatus.VideoNotFound: return OverallStatus.ProcessingFailed;
                 case LocalProcessingStatus.Completed:
+                case LocalProcessingStatus.Skipped:
                     break;
                 default: return OverallStatus.Ready;
             }
@@ -79,7 +89,8 @@ public sealed class EntryLocalState
                     AssignmentStatus.Completed => OverallStatus.Completed,
                     _ => OverallStatus.UploadCompleted
                 },
-                _ => OverallStatus.ProcessingCompleted
+                UploadStatus.Disabled => IsDirect ? OverallStatus.ProcessingDisabled : OverallStatus.UploadDisabled,
+                _ => IsDirect ? OverallStatus.ReadyForDirectUpload : OverallStatus.ProcessingCompleted
             };
         }
     }

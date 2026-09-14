@@ -1,37 +1,65 @@
 <UserControl x:Class="RaceVideoProcessor.App.Views.LogsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Margin="22,18,22,22">
+
+    <!-- Real application activity. Lines never contain passwords, tokens or Authorization headers. -->
+    <Grid Margin="18,14,18,14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel>
-            <TextBlock Text="Logs" Style="{StaticResource Txt.Title}" />
-            <TextBlock Text="Technical detail lives here so the work screen stays clear. The same lines are written to the log file on disk."
-                       Style="{StaticResource Txt.Muted}" Margin="0,6,0,0" />
-        </StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Logs" Style="{StaticResource Txt.Title}" />
+                <TextBlock Text="Application activity and processing detail." Style="{StaticResource Txt.Muted}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevelFilter, Mode=TwoWay}"
+                          Width="120" Padding="9,6" Margin="0,0,10,0" ToolTip="Level" />
+                <Grid Width="230" Margin="0,0,10,0">
+                    <TextBox Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" />
+                    <TextBlock Text="Search logs…" Foreground="{StaticResource TextFaint}" IsHitTestVisible="False"
+                               VerticalAlignment="Center" Margin="12,0,0,0"
+                               Visibility="{Binding LogSearchText, Converter={StaticResource TextToVisibility}, ConverterParameter=invert}" />
+                </Grid>
+                <Button Content="⟳  Refresh" Command="{Binding RefreshLogsCommand}" Style="{StaticResource Btn.Secondary}" Padding="12,6" />
+                <Button Content="Export" Command="{Binding ExportLogsCommand}" Style="{StaticResource Btn.Secondary}" Padding="12,6" />
+                <Button Content="Clear view" Command="{Binding ClearLogsCommand}" Style="{StaticResource Btn.Secondary}" Padding="12,6" Margin="0"
+                        ToolTip="Clears this view. The log file on disk is kept." />
+            </StackPanel>
+        </Grid>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,14">
-            <Button Content="OPEN LOG FILE" Command="{Binding OpenLogFileCommand}" Style="{StaticResource Btn.Secondary}" />
-            <Button Content="CLEAR VIEW" Command="{Binding ClearLogsCommand}" Style="{StaticResource Btn.Secondary}" Margin="0" />
-        </StackPanel>
+        <DataGrid x:Name="LogGrid" Grid.Row="1" Margin="0,12,0,0" ItemsSource="{Binding VisibleLogs}"
+                  FontSize="{StaticResource Size.Small}" SelectionMode="Extended">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="150" />
+                <DataGridTemplateColumn Header="Level" Width="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Level}" FontWeight="Bold" Foreground="{Binding Level, Converter={StaticResource LogLevelBrush}}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Stage" Binding="{Binding Stage}" Width="110" />
+                <DataGridTemplateColumn Header="Message" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Message}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Message}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
 
-        <Border Grid.Row="2" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.Card}" Padding="14">
-            <ListBox x:Name="LogList" ItemsSource="{Binding LogLines}"
-                     ItemContainerStyle="{StaticResource LogRow}"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                     VirtualizingStackPanel.IsVirtualizing="True">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" FontFamily="{StaticResource MonoFont}" FontSize="13"
-                                   Foreground="{Binding Converter={StaticResource LogBrush}}" />
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </Border>
+        <Grid Grid.Row="2" Margin="0,8,0,0">
+            <Button Content="Open log file" Command="{Binding OpenLogFileCommand}" Style="{StaticResource Btn.Link}" HorizontalAlignment="Left" />
+            <TextBlock Text="{Binding LogCountText}" Style="{StaticResource Txt.Muted}" HorizontalAlignment="Right" />
+        </Grid>
     </Grid>
 </UserControl>

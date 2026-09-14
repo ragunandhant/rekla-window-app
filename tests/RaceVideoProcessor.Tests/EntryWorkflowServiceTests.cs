@@ -26,14 +26,14 @@ public sealed class EntryWorkflowServiceTests : IDisposable
 
     private EntryWorkflowService Service() => new(_video, _publisher, _repository, _log);
 
-    private (WorkflowJob Job, EntryLocalState State) NewJob(bool uploadEnabled, RaceScope? scope = null)
+    private (WorkflowJob Job, EntryLocalState State) NewJob(bool uploadEnabled, RaceScope? scope = null, bool processingEnabled = true)
     {
         scope ??= TestScopes.RaceA200;
         var input = Path.Combine(_root, "cart100.mp4");
         File.WriteAllBytes(input, [1, 2, 3]);
         var entry = TestEntries.Create(entryId: "marker-100", card: "100");
         var job = new WorkflowJob(scope, entry, input, Path.Combine(_root, "Processed", "cart100.mp4"),
-            new OverlayData("n", "l", "100", null, null, "00:17.88"), "HASH", false, uploadEnabled);
+            new OverlayData("n", "l", "100", null, null, "00:17.88"), "HASH", false, uploadEnabled, processingEnabled);
         var state = TestScopes.State(scope, entry.EntryId);
         state.LocalVideoPath = input;
         state.ProcessingStatus = LocalProcessingStatus.Ready;
@@ -297,6 +297,119 @@ public sealed class EntryWorkflowServiceTests : IDisposable
         Assert.False(WorkflowRecovery.NeedsAutomaticResume(state, uploadEnabled: true));
     }
 
+    // ---- The four Processing × Upload modes --------------------------------------------
+
+    [Fact]
+    public async Task ProcessingOffUploadOnUploadsTheSelectedFileDirectlyWithoutFfmpeg()
+    {
+        var (job, state) = NewJob(uploadEnabled: true, processingEnabled: false);
+        var stages = new List<WorkflowStage>();
+
+        var result = await Service().RunAsync(job, state, new SyncProgress<WorkflowProgress>(p =>
+        {
+            if (stages.Count == 0 || stages[^1] != p.Stage) stages.Add(p.Stage);
+        }), CancellationToken.None);
+
+        Assert.Equal(WorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(0, _video.Calls);                                   // FFmpeg never ran
+        Assert.Equal(job.InputPath, _publisher.Uploaded.Single());       // the original file itself
+        Assert.False(Directory.Exists(Path.Combine(_root, "Processed"))); // no processed copy
+        Assert.Equal([WorkflowStage.Uploading, WorkflowStage.Assigning], stages);
+        Assert.Equal(LocalProcessingStatus.Skipped, result.State.ProcessingStatus);
+        Assert.Null(result.State.OutputPath);
+        Assert.Equal(WorkflowMode.DirectUpload, result.State.Mode);
+        Assert.Equal(AssignmentStatus.Completed, result.State.AssignmentStatus);
+        Assert.Equal(OverallStatus.Completed, result.State.Overall);
+        Assert.DoesNotContain(_repository.Writes, w => w.ProcessingStatus == LocalProcessingStatus.Processing);
+        Assert.Contains(_log.Lines, l => l.Contains("direct upload", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ProcessingOnUploadOffKeepsTheProcessedFileAndNeverUploads()
+    {
+        var (job, state) = NewJob(uploadEnabled: false);
+
+        var result = await Service().RunAsync(job, state, null, CancellationToken.None);
+
+        Assert.Equal(WorkflowOutcome.UploadDisabled, result.Outcome);
+        Assert.Equal(1, _video.Calls);
+        Assert.True(File.Exists(result.State.OutputPath));
+        Assert.Empty(_publisher.Uploaded);
+        Assert.Empty(_publisher.Assigned);
+        Assert.Equal(UploadStatus.Disabled, result.State.UploadStatus);
+        Assert.Equal(OverallStatus.UploadDisabled, result.State.Overall);
+        Assert.Null(result.State.ErrorMessage);
+        Assert.Equal(WorkflowMode.ProcessOnly, result.State.Mode);
+    }
+
+    [Fact]
+    public async Task ProcessingOffUploadOffDoesNothingAndIsNotAnError()
+    {
+        var (job, state) = NewJob(uploadEnabled: false, processingEnabled: false);
+
+        var result = await Service().RunAsync(job, state, null, CancellationToken.None);
+
+        Assert.Equal(WorkflowOutcome.SelectionOnly, result.Outcome);
+        Assert.Equal(0, _video.Calls);
+        Assert.Empty(_publisher.Uploaded);
+        Assert.Empty(_publisher.Assigned);
+        Assert.Null(result.Error);
+        Assert.Null(result.State.ErrorMessage);
+        Assert.Equal(job.InputPath, result.State.LocalVideoPath);
+        Assert.True(File.Exists(job.InputPath));
+        Assert.Equal(OverallStatus.ProcessingDisabled, result.State.Overall);
+        Assert.Equal(WorkflowMode.SelectionOnly, result.State.Mode);
+    }
+
+    [Fact]
+    public async Task RetryingAFailedDirectUploadReusesTheOriginalAndNeverProcesses()
+    {
+        var (job, state) = NewJob(uploadEnabled: true, processingEnabled: false);
+        _publisher.FailUploads = 1;
+
+        var first = await Service().RunAsync(job, state, null, CancellationToken.None);
+        Assert.Equal(WorkflowOutcome.UploadFailed, first.Outcome);
+        Assert.Empty(_publisher.Assigned);
+        Assert.Equal(LocalProcessingStatus.Skipped, first.State.ProcessingStatus);
+
+        var retry = await Service().RunAsync(job with { InputPath = first.State.LocalVideoPath }, first.State, null, CancellationToken.None);
+
+        Assert.Equal(WorkflowOutcome.Completed, retry.Outcome);
+        Assert.Equal(0, _video.Calls);
+        Assert.Equal(2, _publisher.UploadAttempts);
+        Assert.Equal(job.InputPath, _publisher.Uploaded.Single());
+    }
+
+    [Fact]
+    public async Task ADirectUploadWhoseFileVanishedFailsAsUploadNotProcessing()
+    {
+        var (job, state) = NewJob(uploadEnabled: true, processingEnabled: false);
+        File.Delete(job.InputPath!);
+
+        var result = await Service().RunAsync(job, state, null, CancellationToken.None);
+
+        Assert.Equal(WorkflowOutcome.UploadFailed, result.Outcome);
+        Assert.Equal(OverallStatus.UploadFailed, result.State.Overall);
+        Assert.Equal(0, _video.Calls);
+    }
+
+    [Fact]
+    public void AnInterruptedDirectUploadResumesFromTheSelectedFile()
+    {
+        var state = TestScopes.State(TestScopes.RaceA200, "m");
+        state.LocalVideoPath = "C:/videos/cart.mp4";
+        state.ProcessingStatus = LocalProcessingStatus.Skipped;
+        state.UploadStatus = UploadStatus.Uploading;
+
+        Assert.True(WorkflowRecovery.RecoverInterrupted(state));
+        Assert.True(WorkflowRecovery.NeedsAutomaticResume(state, uploadEnabled: true));
+        Assert.Equal("C:/videos/cart.mp4", state.UploadSourcePath);
+
+        // Selection only (both OFF) is never resumed into a remote action.
+        state.UploadStatus = UploadStatus.Disabled;
+        Assert.False(WorkflowRecovery.NeedsAutomaticResume(state, uploadEnabled: true));
+    }
+
     // ---- Fakes ---------------------------------------------------------------------------
 
     private sealed class FakeVideo : IVideoProcessingService
@@ -315,12 +428,6 @@ public sealed class EntryWorkflowServiceTests : IDisposable
             await File.WriteAllBytesAsync(request.OutputPath, [4, 5, 6], cancellationToken);
             return new ProcessingResult(true, request.OutputPath, null, null, null, false);
         }
-
-        public Task<PreviewResult> GeneratePreviewAsync(string inputPath, OverlayData overlay, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
-
-        public Task<string> ExtractFrameAsync(string videoPath, double seekSeconds, string outputPng, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
     }
 
     private sealed class FakePublisher : IMediaPublisher

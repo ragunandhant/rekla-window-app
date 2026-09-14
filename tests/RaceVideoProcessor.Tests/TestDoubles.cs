@@ -9,6 +9,7 @@ internal sealed class TestLog : IAppLog
     public string LogFilePath => Path.Combine(Path.GetTempPath(), "rvp-test.log");
     public List<string> Lines { get; } = [];
     public void Info(string message) { Lines.Add(message); LineWritten?.Invoke(this, message); }
+    public void Warning(string message) { Lines.Add(message); LineWritten?.Invoke(this, message); }
     public void Error(string message) { Lines.Add(message); LineWritten?.Invoke(this, message); }
 }
 
@@ -40,6 +41,26 @@ internal sealed class InMemoryRepository : ILocalStateRepository
         Races.Add(race);
         return Task.FromResult(race);
     }
+
+    public Task<bool> UpdateRaceAsync(Race race, CancellationToken cancellationToken = default)
+    {
+        var index = Races.FindIndex(r => string.Equals(r.RaceId, race.RaceId, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            return Task.FromResult(false);
+        Races[index] = Races[index] with { RaceName = race.RaceName, RaceDate = race.RaceDate };
+        return Task.FromResult(true);
+    }
+
+    public Task<IReadOnlyDictionary<string, RaceEntryCounts>> GetRaceEntryCountsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyDictionary<string, RaceEntryCounts>>(States.Keys
+            .GroupBy(k => k.RaceId)
+            .ToDictionary(g => g.Key, g => new RaceEntryCounts(g.Count(k => k.Category == RaceCategory.Meter200),
+                g.Count(k => k.Category == RaceCategory.Meter300)), StringComparer.OrdinalIgnoreCase));
+
+    public Task<DatabaseInfo> GetDatabaseInfoAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new DatabaseInfo("memory", 0, 3, Races.Count, States.Count));
+
+    public Task BackupAsync(string destinationPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<bool> DeleteRaceAsync(string raceId, CancellationToken cancellationToken = default)
     {
@@ -124,16 +145,10 @@ internal sealed class StubFontResolver : IFontResolver
 {
     private readonly FontResolution _resolution;
 
-    private readonly FontResolution? _numeric;
-
-    public StubFontResolver(string? path, bool supportsTamil = true, string? numericPath = null)
-    {
-        _resolution = new FontResolution(path, "StubFont", supportsTamil, "test");
-        _numeric = numericPath is null ? null : new FontResolution(numericPath, "StubNumeric", false, "test");
-    }
+    public StubFontResolver(string? path, bool supportsTamil = true)
+        => _resolution = new FontResolution(path, "StubFont", supportsTamil, "test");
 
     public FontResolution Resolve() => _resolution;
-    public FontResolution ResolveNumeric() => _numeric ?? _resolution;
 
     /// <summary>Noto Sans Tamil, shipped with the tests so rendering never depends on installed fonts.</summary>
     public static string TestTamilFont => Path.Combine(AppContext.BaseDirectory, "Fonts", "NotoSansTamil.ttf");

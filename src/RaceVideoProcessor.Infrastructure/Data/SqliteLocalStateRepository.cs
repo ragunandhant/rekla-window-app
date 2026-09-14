@@ -13,6 +13,8 @@ namespace RaceVideoProcessor.Infrastructure.Data;
 /// Schema history, all additive so an existing database upgrades in place:
 ///   v1  entry_local_state (unscoped), app_settings, sync_state
 ///   v2  races, race_entry_state — entry state keyed by (race_id, race_type, entry_id).
+///   v3  race_entry_state.workflow_mode — which stages the last operation ran
+///       (process + upload, process only, direct upload, selection only).
 ///
 /// entry_local_state predates races and cannot be attributed to one, so it is left
 /// untouched and no longer read. Every entry query is scoped to a race, and a
@@ -20,9 +22,10 @@ namespace RaceVideoProcessor.Infrastructure.Data;
 /// </summary>
 public sealed class SqliteLocalStateRepository : ILocalStateRepository
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
 
     private readonly string _connectionString;
+    private readonly string _databasePath;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,
@@ -40,6 +43,7 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
+        _databasePath = Path.GetFullPath(databasePath);
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
@@ -123,6 +127,14 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
+        // v3: additive column; existing rows read as "no mode recorded".
+        if (!await ColumnExistsAsync(connection, "race_entry_state", "workflow_mode", cancellationToken).ConfigureAwait(false))
+        {
+            var addMode = connection.CreateCommand();
+            addMode.CommandText = "ALTER TABLE race_entry_state ADD COLUMN workflow_mode TEXT NULL;";
+            await addMode.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         var version = connection.CreateCommand();
         version.CommandText = $"PRAGMA user_version = {SchemaVersion};";
         await version.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -179,6 +191,38 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
         {
             throw new DuplicateRaceIdException(race.RaceId.Trim());
         }
+    }
+
+    public async Task<bool> UpdateRaceAsync(Race race, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE races SET race_name = $race_name, race_date = $race_date, updated_utc = $updated_utc
+            WHERE race_id = $race_id;
+            """;
+        command.Parameters.AddWithValue("$race_id", race.RaceId.Trim());
+        command.Parameters.AddWithValue("$race_name", race.RaceName.Trim());
+        command.Parameters.AddWithValue("$race_date", race.RaceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$updated_utc", ToDb(DateTimeOffset.UtcNow));
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    public async Task<IReadOnlyDictionary<string, RaceEntryCounts>> GetRaceEntryCountsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT race_id,
+                   SUM(CASE WHEN race_type = 'Meter200' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN race_type = 'Meter300' THEN 1 ELSE 0 END)
+            FROM race_entry_state GROUP BY race_id;
+            """;
+        var counts = new Dictionary<string, RaceEntryCounts>(StringComparer.OrdinalIgnoreCase);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            counts[reader.GetString(0)] = new RaceEntryCounts(reader.GetInt32(1), reader.GetInt32(2));
+        return counts;
     }
 
     public async Task<bool> DeleteRaceAsync(string raceId, CancellationToken cancellationToken = default)
@@ -287,13 +331,13 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
                 race_id, race_type, entry_id, cart_no, player_id, marker, entry_date_utc, remote_video_link,
                 original_file, processed_file, processing_status, upload_status, uploaded_video_link,
                 assignment_status, auth_failure, error_message, last_processed_data_hash, last_seen_data_hash,
-                last_seen_utc, processed_utc, created_utc, updated_utc
+                last_seen_utc, processed_utc, created_utc, updated_utc, workflow_mode
             )
             SELECT
                 $race_id, $race_type, $entry_id, $cart_no, $player_id, $marker, $entry_date_utc, $remote_video_link,
                 $original_file, $processed_file, $processing_status, $upload_status, $uploaded_video_link,
                 $assignment_status, $auth_failure, $error_message, $last_processed_data_hash, $last_seen_data_hash,
-                $last_seen_utc, $processed_utc, $created_utc, $updated_utc
+                $last_seen_utc, $processed_utc, $created_utc, $updated_utc, $workflow_mode
             WHERE EXISTS (SELECT 1 FROM races WHERE race_id = $race_id)
             ON CONFLICT(race_id, race_type, entry_id) DO UPDATE SET
                 cart_no = excluded.cart_no,
@@ -313,7 +357,8 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
                 last_seen_data_hash = excluded.last_seen_data_hash,
                 last_seen_utc = excluded.last_seen_utc,
                 processed_utc = excluded.processed_utc,
-                updated_utc = excluded.updated_utc
+                updated_utc = excluded.updated_utc,
+                workflow_mode = excluded.workflow_mode
             WHERE excluded.updated_utc >= race_entry_state.updated_utc;
             """;
         AddScope(command, state.Scope);
@@ -337,6 +382,7 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
         command.Parameters.AddWithValue("$processed_utc", ToDb(state.ProcessedUtc));
         command.Parameters.AddWithValue("$created_utc", ToDb(state.CreatedUtc));
         command.Parameters.AddWithValue("$updated_utc", ToDb(state.UpdatedUtc));
+        command.Parameters.AddWithValue("$workflow_mode", state.Mode is { } mode ? mode.ToString() : DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -410,7 +456,54 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    // ---- Database ------------------------------------------------------------
+
+    public async Task<DatabaseInfo> GetDatabaseInfoAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version; SELECT COUNT(*) FROM races; SELECT COUNT(*) FROM race_entry_state;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var values = new List<int>();
+        do
+        {
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                values.Add(Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture));
+        } while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+        var size = File.Exists(_databasePath) ? new FileInfo(_databasePath).Length : 0;
+        return new DatabaseInfo(_databasePath, size, values.ElementAtOrDefault(0), values.ElementAtOrDefault(1), values.ElementAtOrDefault(2));
+    }
+
+    public async Task BackupAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        var destination = Path.GetFullPath(destinationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (File.Exists(destination))
+            throw new IOException("A backup with this name already exists.");
+
+        // VACUUM INTO writes a consistent snapshot, WAL contents included.
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "VACUUM INTO $destination;";
+        command.Parameters.AddWithValue("$destination", destination);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     // ---- Helpers -------------------------------------------------------------
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection connection, string table, string column, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({table});";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
@@ -451,6 +544,7 @@ public sealed class SqliteLocalStateRepository : ILocalStateRepository
         LocalVideoPath = GetNullableString(reader, "original_file"),
         OutputPath = GetNullableString(reader, "processed_file"),
         ProcessingStatus = ParseEnum(GetNullableString(reader, "processing_status"), LocalProcessingStatus.VideoNotSelected),
+        Mode = Enum.TryParse<WorkflowMode>(GetNullableString(reader, "workflow_mode"), true, out var mode) ? mode : null,
         UploadStatus = ParseEnum(GetNullableString(reader, "upload_status"), UploadStatus.NotStarted),
         UploadedVideoLink = GetNullableString(reader, "uploaded_video_link"),
         AssignmentStatus = ParseEnum(GetNullableString(reader, "assignment_status"), AssignmentStatus.NotStarted),

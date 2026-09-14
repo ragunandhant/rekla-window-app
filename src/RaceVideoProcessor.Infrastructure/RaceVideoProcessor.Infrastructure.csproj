@@ -13,6 +13,11 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The scoreboard's own typefaces, exactly as the design HTML loads them from
+         Google Fonts: Orbitron 700 and Noto Sans Tamil 500 (Tamil and Latin subsets). OFL. -->
+    <None Include="Fonts\Scoreboard\*.*" CopyToOutputDirectory="PreserveNewest" LinkBase="Fonts\Scoreboard" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Font resolution and coverage are tested against synthetic font files. -->
     <InternalsVisibleTo Include="RaceVideoProcessor.Tests" />
   </ItemGroup>

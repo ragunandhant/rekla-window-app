@@ -12,33 +12,33 @@
          that carries meaning.
          ============================================================ -->
 
-    <Color x:Key="C.Canvas">#E9EDF4</Color>
+    <Color x:Key="C.Canvas">#EEF2EF</Color>
     <Color x:Key="C.Surface">#FFFFFF</Color>
-    <Color x:Key="C.SurfaceAlt">#F5F8FC</Color>
-    <Color x:Key="C.SurfaceSunken">#EDF1F7</Color>
-    <Color x:Key="C.Border">#BCC7D8</Color>
-    <Color x:Key="C.BorderStrong">#8593AB</Color>
+    <Color x:Key="C.SurfaceAlt">#F6F9F7</Color>
+    <Color x:Key="C.SurfaceSunken">#EDF2EE</Color>
+    <Color x:Key="C.Border">#D3DDD6</Color>
+    <Color x:Key="C.BorderStrong">#98A89D</Color>
 
-    <Color x:Key="C.Text">#0D1524</Color>
-    <Color x:Key="C.TextMuted">#41516A</Color>
-    <Color x:Key="C.TextFaint">#5A6980</Color>
+    <Color x:Key="C.Text">#101A14</Color>
+    <Color x:Key="C.TextMuted">#46554B</Color>
+    <Color x:Key="C.TextFaint">#5E6D63</Color>
     <Color x:Key="C.OnAccent">#FFFFFF</Color>
 
-    <Color x:Key="C.Accent">#0B57C8</Color>
-    <Color x:Key="C.AccentDark">#083F92</Color>
+    <Color x:Key="C.Accent">#0E6B3D</Color>
+    <Color x:Key="C.AccentDark">#0A4F2D</Color>
     <Color x:Key="C.Success">#0A7A3D</Color>
     <Color x:Key="C.Warning">#8A5200</Color>
     <Color x:Key="C.Danger">#B3261E</Color>
-    <Color x:Key="C.Info">#0B57C8</Color>
-    <Color x:Key="C.Neutral">#41516A</Color>
+    <Color x:Key="C.Info">#1D5FB8</Color>
+    <Color x:Key="C.Neutral">#46554B</Color>
 
     <!-- Badge and banner fills: tinted, never transparent. -->
-    <Color x:Key="C.AccentSoft">#DEEAFB</Color>
+    <Color x:Key="C.AccentSoft">#DDF0E3</Color>
     <Color x:Key="C.SuccessSoft">#DCF2E4</Color>
     <Color x:Key="C.WarningSoft">#FBEDD6</Color>
     <Color x:Key="C.DangerSoft">#FADEDC</Color>
-    <Color x:Key="C.InfoSoft">#DEEAFB</Color>
-    <Color x:Key="C.NeutralSoft">#E3E8F0</Color>
+    <Color x:Key="C.InfoSoft">#E1ECFA</Color>
+    <Color x:Key="C.NeutralSoft">#E6ECE8</Color>
 
     <SolidColorBrush x:Key="Canvas" Color="{StaticResource C.Canvas}" />
     <SolidColorBrush x:Key="Surface" Color="{StaticResource C.Surface}" />
@@ -78,46 +78,31 @@
     <FontFamily x:Key="UiFont">Nirmala UI, Noto Sans Tamil, Segoe UI, Arial</FontFamily>
     <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
 
-    <!-- Sizes run large on purpose: small type is the first thing lost in glare. -->
-    <sys:Double x:Key="Size.Card">32</sys:Double>
+    <!-- Sizes favour density; the zoom control scales the whole interface for readability. -->
+    <sys:Double x:Key="Size.Card">40</sys:Double>
     <sys:Double x:Key="Size.Display">26</sys:Double>
-    <sys:Double x:Key="Size.Title">20</sys:Double>
-    <sys:Double x:Key="Size.Heading">16</sys:Double>
-    <sys:Double x:Key="Size.Body">14</sys:Double>
-    <sys:Double x:Key="Size.Small">13</sys:Double>
-    <sys:Double x:Key="Size.Micro">12</sys:Double>
+    <sys:Double x:Key="Size.Title">19</sys:Double>
+    <sys:Double x:Key="Size.Heading">15</sys:Double>
+    <sys:Double x:Key="Size.Body">13</sys:Double>
+    <sys:Double x:Key="Size.Small">12</sys:Double>
+    <sys:Double x:Key="Size.Micro">11</sys:Double>
 
     <CornerRadius x:Key="Radius.Card">8</CornerRadius>
     <CornerRadius x:Key="Radius.Control">6</CornerRadius>
     <CornerRadius x:Key="Radius.Pill">999</CornerRadius>
 
-    <!-- Elegant Prestige: the broadcast graphics package, shared by the video
-         scoreboard and the workspace, so both read as one visual system. -->
-    <Color x:Key="C.PrestigeDark">#031A11</Color>
-    <Color x:Key="C.Prestige">#063322</Color>
-    <Color x:Key="C.PrestigeMid">#0A442D</Color>
-    <Color x:Key="C.PrestigeLight">#0D5A3B</Color>
-    <Color x:Key="C.PrestigeEdge">#56BE8B</Color>
-    <Color x:Key="C.Mindaro">#D9F24F</Color>
-    <Color x:Key="C.PrestigeText">#F5F5ED</Color>
-    <Color x:Key="C.PrestigeSub">#D9E1D9</Color>
-    <SolidColorBrush x:Key="PrestigeDark" Color="{StaticResource C.PrestigeDark}" />
-    <SolidColorBrush x:Key="Prestige" Color="{StaticResource C.Prestige}" />
-    <SolidColorBrush x:Key="PrestigeMid" Color="{StaticResource C.PrestigeMid}" />
-    <SolidColorBrush x:Key="PrestigeLight" Color="{StaticResource C.PrestigeLight}" />
-    <SolidColorBrush x:Key="PrestigeEdge" Color="{StaticResource C.PrestigeEdge}" />
-    <SolidColorBrush x:Key="Mindaro" Color="{StaticResource C.Mindaro}" />
-    <SolidColorBrush x:Key="PrestigeText" Color="{StaticResource C.PrestigeText}" />
-    <SolidColorBrush x:Key="PrestigeSub" Color="{StaticResource C.PrestigeSub}" />
-    <LinearGradientBrush x:Key="PrestigePanel" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#0B4A31" Offset="0" />
-        <GradientStop Color="#073522" Offset="0.48" />
-        <GradientStop Color="#032016" Offset="1" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="MindaroLine" StartPoint="0,0" EndPoint="1,0">
-        <GradientStop Color="#C7E947" Offset="0" />
-        <GradientStop Color="#D9F24F" Offset="0.5" />
-        <GradientStop Color="#C7E947" Offset="1" />
-    </LinearGradientBrush>
+    <!-- Application header: the deep race-green bar that holds the workflow controls. -->
+    <Color x:Key="C.Header">#0E5A36</Color>
+    <Color x:Key="C.HeaderDark">#0A4529</Color>
+    <Color x:Key="C.HeaderEdge">#2E7D55</Color>
+    <Color x:Key="C.HeaderText">#FFFFFF</Color>
+    <Color x:Key="C.HeaderSub">#CFE6D8</Color>
+    <Color x:Key="C.SwitchOn">#22C55E</Color>
+    <SolidColorBrush x:Key="Header" Color="{StaticResource C.Header}" />
+    <SolidColorBrush x:Key="HeaderDark" Color="{StaticResource C.HeaderDark}" />
+    <SolidColorBrush x:Key="HeaderEdge" Color="{StaticResource C.HeaderEdge}" />
+    <SolidColorBrush x:Key="HeaderText" Color="{StaticResource C.HeaderText}" />
+    <SolidColorBrush x:Key="HeaderSub" Color="{StaticResource C.HeaderSub}" />
+    <SolidColorBrush x:Key="SwitchOn" Color="{StaticResource C.SwitchOn}" />
 
 </ResourceDictionary>

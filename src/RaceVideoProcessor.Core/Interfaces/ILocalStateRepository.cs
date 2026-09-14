@@ -9,6 +9,15 @@ public sealed class DuplicateRaceIdException(string raceId)
     public string RaceId { get; } = raceId;
 }
 
+/// <summary>Locally stored entries of one race, per category.</summary>
+public sealed record RaceEntryCounts(int Meter200, int Meter300)
+{
+    public int Total => Meter200 + Meter300;
+}
+
+/// <summary>What the Database page shows about the local store.</summary>
+public sealed record DatabaseInfo(string Path, long SizeBytes, int SchemaVersion, int Races, int EntryRecords);
+
 public interface ILocalStateRepository
 {
     Task InitializeAsync(CancellationToken cancellationToken = default);
@@ -20,6 +29,12 @@ public interface ILocalStateRepository
 
     /// <summary>Saves a new race. Throws <see cref="DuplicateRaceIdException"/> if the Race ID exists.</summary>
     Task<Race> AddRaceAsync(Race race, CancellationToken cancellationToken = default);
+
+    /// <summary>Renames or re-dates a saved race. The Race ID is its identity and cannot change. Returns false if it is gone.</summary>
+    Task<bool> UpdateRaceAsync(Race race, CancellationToken cancellationToken = default);
+
+    /// <summary>Locally stored entry records per race, keyed by Race ID (case-insensitive).</summary>
+    Task<IReadOnlyDictionary<string, RaceEntryCounts>> GetRaceEntryCountsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes the race and every locally stored record scoped to it, in one
@@ -45,4 +60,11 @@ public interface ILocalStateRepository
     Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default);
     Task<SyncState> LoadSyncStateAsync(CancellationToken cancellationToken = default);
     Task SaveSyncStateAsync(SyncState state, CancellationToken cancellationToken = default);
+
+    // ---- Database ----------------------------------------------------------
+
+    Task<DatabaseInfo> GetDatabaseInfoAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Writes a consistent copy of the whole database to <paramref name="destinationPath"/>.</summary>
+    Task BackupAsync(string destinationPath, CancellationToken cancellationToken = default);
 }

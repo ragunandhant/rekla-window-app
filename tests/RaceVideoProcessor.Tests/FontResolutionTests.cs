@@ -130,49 +130,48 @@ public sealed class FontResolutionTests : IDisposable
     [Fact]
     public void TheOldLatinOnlyDefaultFontIsMigratedAway()
     {
-        var settings = new AppSettings
-        {
-            SettingsVersion = 0,
-            FontFilePath = @"C:\Windows\Fonts\segoeui.ttf",
-            ScoreboardAccentColor = "#21C7A8",
-            ScoreboardBackgroundColor = "#101725",
-            ScoreboardOpacity = 0.84
-        };
+        var settings = new AppSettings { SettingsVersion = 0, FontFilePath = @"C:\Windows\Fonts\segoeui.ttf" };
 
         settings.Normalize();
 
         Assert.Equal(string.Empty, settings.FontFilePath);
-        Assert.Equal("#D9F24F", settings.ScoreboardAccentColor);
-        Assert.Equal("#063322", settings.ScoreboardBackgroundColor);
-        Assert.Equal(1.0, settings.ScoreboardOpacity, 3);
         Assert.Equal(AppSettings.CurrentSettingsVersion, settings.SettingsVersion);
     }
 
     [Fact]
     public void ValuesTheOperatorChoseSurviveMigration()
     {
-        var settings = new AppSettings
-        {
-            SettingsVersion = 0,
-            FontFilePath = @"D:\Fonts\MyTamilFont.ttf",
-            ScoreboardAccentColor = "#FF5500"
-        };
+        var settings = new AppSettings { SettingsVersion = 0, FontFilePath = @"D:\Fonts\MyTamilFont.ttf" };
 
         settings.Normalize();
 
         Assert.Equal(@"D:\Fonts\MyTamilFont.ttf", settings.FontFilePath);
-        Assert.Equal("#FF5500", settings.ScoreboardAccentColor);
     }
 
     [Fact]
-    public void MigrationRunsOnlyOnce()
+    public void SettingsFromAnOlderBuildStartWithProcessingOnAndNormalZoom()
     {
-        var settings = new AppSettings { SettingsVersion = AppSettings.CurrentSettingsVersion, ScoreboardAccentColor = "#21C7A8" };
+        // Settings JSON written before v5 has neither field; the defaults apply.
+        var settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"settingsVersion\":4,\"uploadEnabled\":false}",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
 
         settings.Normalize();
 
-        // Already current: an operator who deliberately picks the old teal keeps it.
-        Assert.Equal("#21C7A8", settings.ScoreboardAccentColor);
+        Assert.True(settings.ProcessingEnabled);
+        Assert.False(settings.UploadEnabled);
+        Assert.Equal(1.0, settings.UiZoom);
+    }
+
+    [Theory]
+    [InlineData(0.3, 0.75)]
+    [InlineData(1.12, 1.1)]
+    [InlineData(9.0, 1.5)]
+    [InlineData(double.NaN, 1.0)]
+    public void ZoomIsClampedToTheSupportedLevels(double stored, double expected)
+    {
+        var settings = new AppSettings { UiZoom = stored };
+        settings.Normalize();
+        Assert.Equal(expected, settings.UiZoom);
     }
 }
 

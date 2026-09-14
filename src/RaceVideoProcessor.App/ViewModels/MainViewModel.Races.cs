@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using RaceVideoProcessor.App.Commands;
@@ -13,8 +14,34 @@ namespace RaceVideoProcessor.App.ViewModels;
 public sealed class RaceItemViewModel : ObservableObject
 {
     private bool _isActive;
+    private RaceEntryCounts _counts = new(0, 0);
 
     public RaceItemViewModel(Race race) => Race = race;
+
+    /// <summary>Entries stored locally for this race: the ones seen from the API or worked on.</summary>
+    public RaceEntryCounts Counts
+    {
+        get => _counts;
+        set
+        {
+            if (SetProperty(ref _counts, value))
+            {
+                OnPropertyChanged(nameof(TotalEntries));
+                OnPropertyChanged(nameof(Entries200));
+                OnPropertyChanged(nameof(Entries300));
+            }
+        }
+    }
+
+    public int TotalEntries => Counts.Total;
+    public int Entries200 => Counts.Meter200;
+    public int Entries300 => Counts.Meter300;
+
+    public bool Matches(string? term)
+        => string.IsNullOrWhiteSpace(term) ||
+           RaceName.Contains(term.Trim(), StringComparison.OrdinalIgnoreCase) ||
+           RaceId.Contains(term.Trim(), StringComparison.OrdinalIgnoreCase) ||
+           RaceDateDisplay.Contains(term.Trim(), StringComparison.OrdinalIgnoreCase);
 
     public Race Race { get; }
     public string RaceId => Race.RaceId;
@@ -26,15 +53,13 @@ public sealed class RaceItemViewModel : ObservableObject
         get => _isActive;
         set
         {
-            if (SetProperty(ref _isActive, value))
-                OnPropertyChanged(nameof(StatusText));
+            SetProperty(ref _isActive, value);
         }
     }
 
-    public string StatusText => IsActive ? "ACTIVE" : "SAVED";
 }
 
-/// <summary>Race Management: creating, selecting and deleting races.</summary>
+/// <summary>Race Management: creating, editing, selecting and deleting races.</summary>
 public sealed partial class MainViewModel
 {
     private Race? _activeRace;
@@ -45,26 +70,71 @@ public sealed partial class MainViewModel
     private string _newRaceId = string.Empty;
     private string _raceFormError = string.Empty;
     private Race? _duplicateRace;
+    private string? _editingRaceId;
+    private string _raceSearchText = string.Empty;
 
     public ObservableCollection<RaceItemViewModel> Races { get; } = [];
+
+    /// <summary>The Races table after search.</summary>
+    public ObservableCollection<RaceItemViewModel> VisibleRaces { get; } = [];
+
+    public string RaceSearchText
+    {
+        get => _raceSearchText;
+        set
+        {
+            if (SetProperty(ref _raceSearchText, value))
+                RebuildVisibleRaces();
+        }
+    }
+
+    public string RaceCountText => $"Total races: {Races.Count}";
+
+    public ICommand SelectRaceCommand { get; private set; } = null!;
+    public ICommand EditRaceCommand { get; private set; } = null!;
+    public ICommand DeleteRaceCommand { get; private set; } = null!;
 
     public ICommand OpenCreateRaceCommand { get; private set; } = null!;
     public ICommand CancelCreateRaceCommand { get; private set; } = null!;
     public ICommand SaveRaceCommand { get; private set; } = null!;
-    public ICommand UseSelectedRaceCommand { get; private set; } = null!;
     public ICommand UseDuplicateRaceCommand { get; private set; } = null!;
-    public ICommand DeleteSelectedRaceCommand { get; private set; } = null!;
 
     private void InitializeRaceManagement()
     {
         OpenCreateRaceCommand = new RelayCommand(OpenCreateRace);
         CancelCreateRaceCommand = new RelayCommand(() => IsCreateRaceOpen = false);
         SaveRaceCommand = new AsyncRelayCommand(SaveRaceAsync);
-        UseSelectedRaceCommand = new AsyncRelayCommand(
-            () => SelectedRaceItem is null ? Task.CompletedTask : ActivateRaceAsync(SelectedRaceItem.Race),
-            () => UseRaceBlockReason.Length == 0);
         UseDuplicateRaceCommand = new AsyncRelayCommand(UseDuplicateRaceAsync, () => DuplicateRace is not null);
-        DeleteSelectedRaceCommand = new AsyncRelayCommand(DeleteSelectedRaceAsync, () => SelectedRaceItem is not null);
+        SelectRaceCommand = new AsyncRelayCommand<RaceItemViewModel>(item => item is null ? Task.CompletedTask : ActivateRaceAsync(item.Race));
+        EditRaceCommand = new RelayCommand<RaceItemViewModel>(item => { if (item is not null) OpenEditRace(item.Race); });
+        DeleteRaceCommand = new AsyncRelayCommand<RaceItemViewModel>(async item =>
+        {
+            if (item is null)
+                return;
+            SelectedRaceItem = item;
+            await DeleteSelectedRaceAsync();
+        });
+    }
+
+    /// <summary>
+    /// The race chosen in the header. Setting it switches the work context, which
+    /// is refused while an operation runs; the header then snaps back.
+    /// </summary>
+    public RaceItemViewModel? HeaderRace
+    {
+        get => Races.FirstOrDefault(r => r.IsActive);
+        set
+        {
+            if (value is null || value.IsActive)
+                return;
+            _ = SwitchRaceFromHeaderAsync(value.Race);
+        }
+    }
+
+    private async Task SwitchRaceFromHeaderAsync(Race race)
+    {
+        await ActivateRaceAsync(race, stayOnPage: true);
+        OnPropertyChanged(nameof(HeaderRace));
     }
 
     // ---- Active race -------------------------------------------------------
@@ -82,6 +152,7 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(ActiveRaceDate));
             foreach (var item in Races)
                 item.IsActive = value is not null && string.Equals(item.RaceId, value.RaceId, StringComparison.OrdinalIgnoreCase);
+            OnPropertyChanged(nameof(HeaderRace));
         }
     }
 
@@ -103,17 +174,6 @@ public sealed partial class MainViewModel
 
     public bool HasRaces => Races.Count > 0;
 
-    public string UseRaceBlockReason
-    {
-        get
-        {
-            if (SelectedRaceItem is null) return "Select a race in the list.";
-            if (SelectedRaceItem.IsActive) return "This race is already active.";
-            if (_job is not null) return "A job is running. Cancel or finish it before switching races.";
-            return string.Empty;
-        }
-    }
-
     public string DeleteRaceBlockReason
     {
         get
@@ -127,22 +187,47 @@ public sealed partial class MainViewModel
 
     private void RefreshRaceActionAvailability()
     {
-        OnPropertyChanged(nameof(UseRaceBlockReason));
         OnPropertyChanged(nameof(DeleteRaceBlockReason));
     }
 
     private async Task LoadRacesAsync()
     {
         var races = await _repository.GetRacesAsync(_lifetimeCts.Token);
+        var counts = await _repository.GetRaceEntryCountsAsync(_lifetimeCts.Token);
         Races.Clear();
         foreach (var race in races)
         {
             Races.Add(new RaceItemViewModel(race)
             {
-                IsActive = ActiveRace is not null && string.Equals(race.RaceId, ActiveRace.RaceId, StringComparison.OrdinalIgnoreCase)
+                IsActive = ActiveRace is not null && string.Equals(race.RaceId, ActiveRace.RaceId, StringComparison.OrdinalIgnoreCase),
+                Counts = counts.TryGetValue(race.RaceId, out var c) ? c : new RaceEntryCounts(0, 0)
             });
         }
         OnPropertyChanged(nameof(HasRaces));
+        OnPropertyChanged(nameof(HeaderRace));
+        OnPropertyChanged(nameof(RaceCountText));
+        RebuildVisibleRaces();
+    }
+
+    private async Task RefreshRaceCountsAsync()
+    {
+        try
+        {
+            var counts = await _repository.GetRaceEntryCountsAsync(_lifetimeCts.Token);
+            foreach (var item in Races)
+                item.Counts = counts.TryGetValue(item.RaceId, out var c) ? c : new RaceEntryCounts(0, 0);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Error("Could not count race entries: " + ex.Message);
+        }
+    }
+
+    private void RebuildVisibleRaces()
+    {
+        VisibleRaces.Clear();
+        foreach (var item in Races.Where(r => r.Matches(RaceSearchText)))
+            VisibleRaces.Add(item);
     }
 
     private async Task RestoreSelectedRaceAsync()
@@ -175,11 +260,12 @@ public sealed partial class MainViewModel
     /// the running job keeps its own race either way, but the operator must not be
     /// moved away from it mid-operation.
     /// </summary>
-    private async Task ActivateRaceAsync(Race race)
+    private async Task ActivateRaceAsync(Race race, bool stayOnPage = false)
     {
         if (ActiveRace is not null && string.Equals(ActiveRace.RaceId, race.RaceId, StringComparison.OrdinalIgnoreCase))
         {
-            ActivePage = AppPage.Work;
+            if (!stayOnPage)
+                ActivePage = AppPage.Work;
             return;
         }
 
@@ -203,7 +289,9 @@ public sealed partial class MainViewModel
 
         SearchText = string.Empty;
         BannerText = string.Empty;
-        ActivePage = AppPage.Work;
+        _awaitingNextAfter = null;
+        if (!stayOnPage)
+            ActivePage = AppPage.Work;
         await LoadScopeAsync();
     }
 
@@ -244,18 +332,80 @@ public sealed partial class MainViewModel
 
     public bool HasDuplicateRace => DuplicateRace is not null;
 
+    /// <summary>The form edits an existing race: its Race ID is shown but cannot change.</summary>
+    public bool IsEditingRace => _editingRaceId is not null;
+    public string RaceFormTitle => IsEditingRace ? "Edit Race" : "Add Race";
+
     private void OpenCreateRace()
     {
+        _editingRaceId = null;
         NewRaceName = string.Empty;
         NewRaceDate = DateTime.Today.ToString(Race.DateFormat);
         NewRaceId = string.Empty;
         RaceFormError = string.Empty;
         DuplicateRace = null;
+        OnPropertyChanged(nameof(IsEditingRace));
+        OnPropertyChanged(nameof(RaceFormTitle));
         IsCreateRaceOpen = true;
+    }
+
+    private void OpenEditRace(Race race)
+    {
+        _editingRaceId = race.RaceId;
+        NewRaceName = race.RaceName;
+        NewRaceDate = race.RaceDateDisplay;
+        NewRaceId = race.RaceId;
+        RaceFormError = string.Empty;
+        DuplicateRace = null;
+        OnPropertyChanged(nameof(IsEditingRace));
+        OnPropertyChanged(nameof(RaceFormTitle));
+        IsCreateRaceOpen = true;
+    }
+
+    /// <summary>
+    /// Saves the name and date of an existing race. The Race ID is the race's
+    /// identity — every stored entry is keyed by it — so it is never changed.
+    /// </summary>
+    private async Task SaveEditedRaceAsync(string raceId)
+    {
+        var others = Races.Select(r => r.Race).Where(r => !string.Equals(r.RaceId, raceId, StringComparison.OrdinalIgnoreCase)).ToList();
+        var validation = RaceValidator.Validate(NewRaceName, NewRaceDate, raceId, others);
+        if (!validation.IsValid)
+        {
+            RaceFormError = string.Join("\n", validation.Errors);
+            return;
+        }
+
+        var existing = Races.FirstOrDefault(r => string.Equals(r.RaceId, raceId, StringComparison.OrdinalIgnoreCase))?.Race;
+        if (existing is null || !await _repository.UpdateRaceAsync(existing with
+            {
+                RaceName = validation.RaceName,
+                RaceDate = validation.RaceDate!.Value
+            }, _lifetimeCts.Token))
+        {
+            RaceFormError = "This race no longer exists.";
+            await LoadRacesAsync();
+            return;
+        }
+
+        _log.Info($"Race edited: Race ID {raceId} is now {validation.RaceName} ({validation.RaceDate:dd-MM-yyyy}).");
+        IsCreateRaceOpen = false;
+        _editingRaceId = null;
+        await LoadRacesAsync();
+
+        if (ActiveRace is not null && string.Equals(ActiveRace.RaceId, raceId, StringComparison.OrdinalIgnoreCase))
+            ActiveRace = await _repository.GetRaceAsync(raceId, _lifetimeCts.Token) ?? ActiveRace;
+        ShowBanner(BannerKind.Success, $"Race {validation.RaceName} saved.");
     }
 
     private async Task SaveRaceAsync()
     {
+        if (_editingRaceId is { } editing)
+        {
+            await SaveEditedRaceAsync(editing);
+            return;
+        }
+
         var existing = Races.Select(r => r.Race).ToList();
         var validation = RaceValidator.Validate(NewRaceName, NewRaceDate, NewRaceId, existing);
         DuplicateRace = validation.ExistingRaceWithSameId;
@@ -293,7 +443,7 @@ public sealed partial class MainViewModel
         if (ActiveRace is null && _job is null)
             await ActivateRaceAsync(saved);
         else
-            ShowBanner(BannerKind.Success, $"Race {saved.RaceName} saved. Select it and choose USE THIS RACE to work on it.");
+            ShowBanner(BannerKind.Success, $"Race {saved.RaceName} saved. Choose Select to work on it.");
     }
 
     private async Task UseDuplicateRaceAsync()
@@ -313,7 +463,8 @@ public sealed partial class MainViewModel
             return;
 
         var race = item.Race;
-        if (DeleteRaceBlockReason is { Length: > 0 } reason && _job is not null)
+        if (_job is not null && string.Equals(_job.Scope.RaceId, race.RaceId, StringComparison.OrdinalIgnoreCase) &&
+            DeleteRaceBlockReason is { Length: > 0 } reason)
         {
             MessageBox.Show(reason, "Cannot delete active race", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -376,5 +527,61 @@ public sealed partial class MainViewModel
         }
 
         ShowBanner(BannerKind.Success, $"Race {race.RaceName} deleted, with {records} local record(s).");
+    }
+
+    // ---- Database ------------------------------------------------------------
+
+    private DatabaseInfo? _databaseInfo;
+    private string _lastBackupText = "No backup made this session.";
+
+    public DatabaseInfo? DatabaseInfo
+    {
+        get => _databaseInfo;
+        private set
+        {
+            if (SetProperty(ref _databaseInfo, value))
+                OnPropertyChanged(nameof(DatabaseSizeText));
+        }
+    }
+
+    public string DatabaseSizeText => DatabaseInfo is null
+        ? "—"
+        : DatabaseInfo.SizeBytes >= 1024 * 1024
+            ? $"{DatabaseInfo.SizeBytes / 1048576d:0.0} MB"
+            : $"{DatabaseInfo.SizeBytes / 1024d:0} KB";
+
+    public string LastBackupText { get => _lastBackupText; private set => SetProperty(ref _lastBackupText, value); }
+
+    private async Task RefreshDatabaseAsync()
+    {
+        try
+        {
+            DatabaseInfo = await _repository.GetDatabaseInfoAsync(_lifetimeCts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Error("Could not read the database details: " + ex.Message);
+        }
+    }
+
+    /// <summary>A consistent copy of the whole local database, next to it under Backups.</summary>
+    private async Task BackupDatabaseAsync()
+    {
+        try
+        {
+            var info = DatabaseInfo ?? await _repository.GetDatabaseInfoAsync(_lifetimeCts.Token);
+            var folder = Path.Combine(Path.GetDirectoryName(info.Path) ?? ".", "Backups");
+            var destination = Path.Combine(folder, $"race-video-processor-{DateTime.Now:yyyyMMdd-HHmmss}.db");
+            await _repository.BackupAsync(destination, _lifetimeCts.Token);
+            LastBackupText = $"Last backup: {destination}";
+            _log.Info($"Database backed up to {destination}.");
+            ShowBanner(BannerKind.Success, "Database backed up.");
+            await RefreshDatabaseAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Error("Database backup failed: " + ex.Message);
+            ShowBanner(BannerKind.Error, "Database backup failed: " + ex.Message);
+        }
     }
 }

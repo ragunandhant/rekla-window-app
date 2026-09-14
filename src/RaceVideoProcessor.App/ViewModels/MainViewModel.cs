@@ -19,8 +19,9 @@ namespace RaceVideoProcessor.App.ViewModels;
 /// Rules that shape this class:
 ///   1. Everything happens inside the selected race and category. The race
 ///      supplies the one Race ID; the category only supplies the API type.
-///   2. Selecting a video starts the job: process, then upload and assign when
-///      upload is ON. There is no start button, and only one job runs at a time.
+///   2. Selecting a video starts the job in the mode set by the Processing and
+///      Upload toggles: process + upload, process only, direct upload, or keep the
+///      selection. There is no start button, and only one job runs at a time.
 ///   3. A job captures its race, category and entry when it starts. Nothing the
 ///      operator does afterwards changes what it acts on, and switching race is
 ///      refused while it runs.
@@ -31,7 +32,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly ILocalStateRepository _repository;
     private readonly IDemoEntryController _demoController;
     private readonly PollingCoordinator _polling;
-    private readonly IVideoProcessingService _videoProcessing;
     private readonly EntryWorkflowService _workflow;
     private readonly IEncoderCapabilityService _encoderCapability;
     private readonly IBackendDiagnostics _backendDiagnostics;
@@ -59,6 +59,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     // ---- The running job -----------------------------------------------------
 
     private ActiveJob? _job;
+
+    /// <summary>The completed entry the operator is left on when no next entry exists yet; a new API entry moves on from it.</summary>
+    private EntryItemViewModel? _awaitingNextAfter;
     private CancellationTokenSource? _jobCts;
     private string _processingFile = "—";
     private double _jobPercent;
@@ -70,7 +73,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private string _bannerText = string.Empty;
     private BannerKind _bannerSeverity = BannerKind.Info;
 
-    private sealed record ActiveJob(RaceScope Scope, string EntryId, string CardNumber, string PrimaryName, bool IsRecovery)
+    private sealed record ActiveJob(RaceScope Scope, string EntryId, string CardNumber, string PrimaryName, bool IsRecovery,
+        bool ProcessingEnabled, bool UploadEnabled)
     {
         public WorkflowStage Stage { get; set; } = WorkflowStage.Processing;
     }
@@ -80,7 +84,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         ILocalStateRepository repository,
         IDemoEntryController demoController,
         PollingCoordinator polling,
-        IVideoProcessingService videoProcessing,
         EntryWorkflowService workflow,
         IEncoderCapabilityService encoderCapability,
         IBackendDiagnostics backendDiagnostics,
@@ -92,7 +95,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         _repository = repository;
         _demoController = demoController;
         _polling = polling;
-        _videoProcessing = videoProcessing;
         _workflow = workflow;
         _encoderCapability = encoderCapability;
         _backendDiagnostics = backendDiagnostics;
@@ -105,7 +107,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         _log.LineWritten += OnLogLineWritten;
 
         SelectVideoCommand = new AsyncRelayCommand(SelectVideoAsync, () => SelectVideoBlockReason.Length == 0);
-        PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => PreviewBlockReason.Length == 0);
+        ClearVideoCommand = new AsyncRelayCommand(ClearVideoAsync, () => ClearVideoBlockReason.Length == 0);
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => RetryBlockReason.Length == 0);
         CancelProcessingCommand = new RelayCommand(CancelProcessing, () => IsProcessing);
         OpenOutputCommand = new RelayCommand(OpenOutput, () => OpenOutputBlockReason.Length == 0);
@@ -120,11 +122,24 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         TestFfmpegCommand = new AsyncRelayCommand(TestFfmpegAsync);
         TestNvencCommand = new AsyncRelayCommand(TestNvencAsync);
         SetCategoryCommand = new AsyncRelayCommand<string>(SetCategoryAsync);
-        SetUploadCommand = new AsyncRelayCommand<string>(SetUploadAsync);
+        ZoomInCommand = new AsyncRelayCommand(() => SetZoomAsync(+1), () => UiZoom < AppSettings.ZoomLevels[^1]);
+        ZoomOutCommand = new AsyncRelayCommand(() => SetZoomAsync(-1), () => UiZoom > AppSettings.ZoomLevels[0]);
+        ResetZoomCommand = new AsyncRelayCommand(() => SetZoomAsync(0));
         NavigateCommand = new RelayCommand<string>(page =>
         {
-            if (Enum.TryParse<AppPage>(page, ignoreCase: true, out var parsed))
-                ActivePage = parsed;
+            if (!Enum.TryParse<AppPage>(page, ignoreCase: true, out var parsed))
+                return;
+            // Choosing the page already open returns to the work area.
+            ActivePage = parsed == ActivePage ? AppPage.Work : parsed;
+            if (ActivePage == AppPage.Database)
+                _ = RefreshDatabaseAsync();
+            if (ActivePage == AppPage.Races)
+                _ = RefreshRaceCountsAsync();
+        });
+        SetSettingsSectionCommand = new RelayCommand<string>(name =>
+        {
+            if (Enum.TryParse<SettingsSection>(name, ignoreCase: true, out var parsed))
+                ActiveSettingsSection = parsed;
         });
         SetFilterCommand = new RelayCommand<string>(name =>
         {
@@ -133,8 +148,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         });
         ClearSearchCommand = new RelayCommand(() => SearchText = string.Empty);
         DismissBannerCommand = new RelayCommand(() => BannerText = string.Empty);
-        ClearLogsCommand = new RelayCommand(() => LogLines.Clear());
+        ClearLogsCommand = new RelayCommand(() => { Logs.Clear(); RebuildVisibleLogs(); });
+        RefreshLogsCommand = new RelayCommand(LoadRecentLogs);
+        ExportLogsCommand = new RelayCommand(ExportLogs);
+        SetLogLevelCommand = new RelayCommand<string>(level => LogLevelFilter = level ?? "All");
         OpenLogFileCommand = new RelayCommand(OpenLogFile);
+        RefreshDatabaseCommand = new AsyncRelayCommand(RefreshDatabaseAsync);
+        BackupDatabaseCommand = new AsyncRelayCommand(BackupDatabaseAsync);
+        OpenDataFolderCommand = new RelayCommand(() => OpenFolder(Path.GetDirectoryName(_log.LogFilePath) ?? string.Empty));
 
         InitializeRaceManagement();
     }
@@ -149,7 +170,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     /// <summary>What the list actually shows after search and filter.</summary>
     public ObservableCollection<EntryItemViewModel> VisibleEntries { get; } = [];
 
-    public ObservableCollection<string> LogLines { get; } = [];
+    /// <summary>Every log line loaded or written this session (most recent 2000).</summary>
+    public List<LogEntry> Logs { get; } = [];
+
+    /// <summary>What the Logs page shows after the level filter and search.</summary>
+    public ObservableCollection<LogEntry> VisibleLogs { get; } = [];
 
     public IReadOnlyList<DataSourceMode> DataSourceModes { get; } = Enum.GetValues<DataSourceMode>();
     public IReadOnlyList<int> PollingIntervals { get; } = [10, 20, 30, 60];
@@ -159,7 +184,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     // ---- Commands ----------------------------------------------------------
 
     public ICommand SelectVideoCommand { get; }
-    public ICommand PreviewCommand { get; }
+    public ICommand ClearVideoCommand { get; }
     public ICommand RetryCommand { get; }
     public ICommand CancelProcessingCommand { get; }
     public ICommand OpenOutputCommand { get; }
@@ -174,7 +199,16 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public ICommand TestFfmpegCommand { get; }
     public ICommand TestNvencCommand { get; }
     public ICommand SetCategoryCommand { get; }
-    public ICommand SetUploadCommand { get; }
+    public ICommand ZoomInCommand { get; }
+    public ICommand ZoomOutCommand { get; }
+    public ICommand ResetZoomCommand { get; }
+    public ICommand SetSettingsSectionCommand { get; }
+    public ICommand RefreshLogsCommand { get; }
+    public ICommand ExportLogsCommand { get; }
+    public ICommand SetLogLevelCommand { get; }
+    public ICommand RefreshDatabaseCommand { get; }
+    public ICommand BackupDatabaseCommand { get; }
+    public ICommand OpenDataFolderCommand { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SetFilterCommand { get; }
     public ICommand ClearSearchCommand { get; }
@@ -205,6 +239,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
                 return;
             if (!SetProperty(ref _selectedEntry, value))
                 return;
+            if (!ReferenceEquals(value, _awaitingNextAfter))
+                _awaitingNextAfter = null;
             OnPropertyChanged(nameof(HasSelection));
             RefreshWorkContext();
         }
@@ -234,6 +270,12 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    public int CountAll => Entries.Count;
+    public int CountUploaded => Entries.Count(e => e.FilterBucket == EntryFilter.Uploaded);
+    public int CountFailed => Entries.Count(e => e.FilterBucket == EntryFilter.Failed);
+    public int CountReadyToUpload => Entries.Count(e => e.FilterBucket == EntryFilter.ReadyToUpload);
+    public int CountProcessing => Entries.Count(e => e.FilterBucket == EntryFilter.Processing);
+
     public string EntryCountSummary => VisibleEntries.Count == Entries.Count
         ? $"{Entries.Count} entries"
         : $"{VisibleEntries.Count} of {Entries.Count} entries";
@@ -248,7 +290,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     public RaceCategory SelectedCategory => Settings.SelectedCategory;
     public string SelectedCategoryLabel => Settings.SelectedCategory == RaceCategory.Meter300 ? "300 Meter" : "200 Meter";
-    public bool UploadEnabled => Settings.UploadEnabled;
 
     public RaceScope? CurrentScope => ActiveRace is null ? null : new RaceScope(ActiveRace.RaceId, Settings.SelectedCategory);
 
@@ -263,20 +304,90 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         await LoadScopeAsync();
     }
 
-    private async Task SetUploadAsync(string? value)
+    /// <summary>
+    /// Processing ON: selected videos go through FFmpeg for the scoreboard.
+    /// OFF: the selected file is used as it is. Applies to the next operation; a
+    /// running one keeps the mode it started with.
+    /// </summary>
+    public bool ProcessingEnabled
     {
-        var enabled = string.Equals(value, "On", StringComparison.OrdinalIgnoreCase);
-        if (enabled == Settings.UploadEnabled)
+        get => Settings.ProcessingEnabled;
+        set => _ = SetWorkflowToggleAsync(processing: value, upload: Settings.UploadEnabled);
+    }
+
+    /// <summary>Upload ON: the video is uploaded and assigned. Independent of processing; applies to the next operation.</summary>
+    public bool UploadEnabled
+    {
+        get => Settings.UploadEnabled;
+        set => _ = SetWorkflowToggleAsync(processing: Settings.ProcessingEnabled, upload: value);
+    }
+
+    /// <summary>What selecting a video will do now, in words.</summary>
+    public string WorkflowModeText => WorkflowModes.From(Settings.ProcessingEnabled, Settings.UploadEnabled) switch
+    {
+        WorkflowMode.ProcessAndUpload => "Select video → process → upload → assign → next entry",
+        WorkflowMode.ProcessOnly => "Select video → process → keep the processed file (upload is OFF)",
+        WorkflowMode.DirectUpload => "Select video → upload it directly, no processing → assign → next entry",
+        _ => "Select video → keep the selection (processing and upload are OFF)"
+    };
+
+    private async Task SetWorkflowToggleAsync(bool processing, bool upload)
+    {
+        var processingChanged = processing != Settings.ProcessingEnabled;
+        var uploadChanged = upload != Settings.UploadEnabled;
+        if (!processingChanged && !uploadChanged)
             return;
 
-        Settings.UploadEnabled = enabled;
+        Settings.ProcessingEnabled = processing;
+        Settings.UploadEnabled = upload;
         await _repository.SaveSettingsAsync(Settings, _lifetimeCts.Token);
-        _log.Info("Upload switched " + (enabled ? "ON." : "OFF."));
+
+        if (processingChanged)
+            _log.Info("Processing switched " + (processing ? "ON." : "OFF — selected videos are used as they are; FFmpeg is not run."));
+        if (uploadChanged)
+            _log.Info("Upload switched " + (upload ? "ON." : "OFF — nothing is uploaded or assigned."));
         if (IsBusy)
-            ShowBanner(BannerKind.Info, $"Upload is now {(enabled ? "ON" : "OFF")}. The job already running keeps the setting it started with.");
+            ShowBanner(BannerKind.Info, "The change applies to the next video. The operation already running keeps the settings it started with.");
+
+        OnPropertyChanged(nameof(ProcessingEnabled));
+        OnPropertyChanged(nameof(UploadEnabled));
+        OnPropertyChanged(nameof(WorkflowModeText));
         RefreshWorkContext();
-        if (enabled)
+        if (uploadChanged && upload)
             await TryResumeInterruptedAsync();
+    }
+
+    // ---- Zoom --------------------------------------------------------------
+
+    /// <summary>Scale of the whole interface. The video and its scoreboard are never affected.</summary>
+    public double UiZoom => Settings.UiZoom;
+    public bool IsZoomChanged => Math.Abs(Settings.UiZoom - 1.0) > 0.001;
+
+    private async Task SetZoomAsync(int direction)
+    {
+        var levels = AppSettings.ZoomLevels;
+        var index = Array.IndexOf(levels, Settings.UiZoom);
+        if (index < 0)
+            index = Array.IndexOf(levels, 1.0);
+        var target = direction == 0 ? 1.0 : levels[Math.Clamp(index + direction, 0, levels.Length - 1)];
+        if (Math.Abs(target - Settings.UiZoom) < 0.001)
+            return;
+
+        Settings.UiZoom = target;
+        OnPropertyChanged(nameof(UiZoom));
+        OnPropertyChanged(nameof(IsZoomChanged));
+        CommandManager.InvalidateRequerySuggested();
+        await _repository.SaveSettingsAsync(Settings, _lifetimeCts.Token);
+    }
+
+    // ---- Settings sections -------------------------------------------------
+
+    private SettingsSection _activeSettingsSection = SettingsSection.General;
+
+    public SettingsSection ActiveSettingsSection
+    {
+        get => _activeSettingsSection;
+        set => SetProperty(ref _activeSettingsSection, value);
     }
 
     // ---- Provider status ---------------------------------------------------
@@ -289,6 +400,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string EncoderDisplay { get => _encoderDisplay; private set => SetProperty(ref _encoderDisplay, value); }
     public bool IsDemoMode => Settings.DataSourceMode == DataSourceMode.Demo;
     public string ModeLabel => IsDemoMode ? "DEMO" : "REAL API";
+
+    /// <summary>The scoreboard's own typefaces, bundled with the application.</summary>
+    public string ScoreboardFontText => RaceVideoProcessor.Infrastructure.Video.ScoreboardFonts.Bundled() is not null
+        ? "Orbitron 700 and Noto Sans Tamil 500, bundled — the fonts of the scoreboard design"
+        : "Missing from the installation — the fallback font below is used. Reinstall to restore them.";
 
     public string FontDisplay { get; private set; } = "Resolving…";
     public string FontWarning { get; private set; } = string.Empty;
@@ -304,6 +420,26 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     public bool IsUploading => _job is { Stage: WorkflowStage.Uploading };
 
+    /// <summary>The running job skips FFmpeg and uploads the selected file itself.</summary>
+    public bool IsDirectJob => _job is { ProcessingEnabled: false };
+
+    /// <summary>Headline of the Processing section. Never a progress claim that is not real.</summary>
+    public string ProcessingStateText => _job switch
+    {
+        { Stage: WorkflowStage.Processing } => "Processing video…",
+        { ProcessingEnabled: false } => "Processing skipped — direct upload mode",
+        not null => "Processing completed",
+        _ when CurrentEntry is { ProcessingStatus: LocalProcessingStatus.Skipped } => "Processing disabled for this video",
+        _ when !Settings.ProcessingEnabled => "Processing Disabled",
+        _ => CurrentEntry?.ProcessingStageText ?? "—"
+    };
+
+    public string ProcessingStageDetail => _job is { Stage: WorkflowStage.Processing }
+        ? "Adding scoreboard and encoding…"
+        : !Settings.ProcessingEnabled && _job is null
+            ? "Selected videos are used as they are. FFmpeg is not run."
+            : string.Empty;
+
     public string ProcessingFile { get => _processingFile; private set => SetProperty(ref _processingFile, value); }
     public string ProcessingElapsed { get => _processingElapsed; private set => SetProperty(ref _processingElapsed, value); }
     public string ProcessingEta { get => _processingEta; private set => SetProperty(ref _processingEta, value); }
@@ -315,8 +451,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string SelectedVideoText => _job is not null
         ? ProcessingFile
         : SelectedEntry is { HasLocalVideo: true } entry ? entry.LocalVideoFileName : "No video selected";
-
-    public bool IsProcessingStageVisible => _job is { Stage: WorkflowStage.Processing };
 
     /// <summary>Progress of the running stage: FFmpeg progress while processing, bytes sent while uploading.</summary>
     public double JobPercent
@@ -344,6 +478,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     public string ProcessingSummary => _job is null ? "Idle" : $"{StageName(_job.Stage)} · Cart {_job.CardNumber}";
 
+    public string StatusBarText => _job is null ? "Ready" : $"{StageName(_job.Stage)} · Cart {_job.CardNumber}";
+
+    public string AppVersion => "v" + (typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
+
     /// <summary>Shown as "Current": the entry being worked on, else the selected entry.</summary>
     /// <summary>The entry being worked on — the running job's — else the selected entry. The bottom of the workspace shows it.</summary>
     public EntryItemViewModel? CurrentEntry => _job is not null && _job.Scope == CurrentScope
@@ -357,21 +495,15 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Upload state for the strip under the entry: live while uploading, else the entry's stored stages.</summary>
     public string UploadStateText => _job switch
     {
-        { Stage: WorkflowStage.Uploading } => "Uploading",
-        { Stage: WorkflowStage.Assigning } => "Assigning video to player",
-        _ when !Settings.UploadEnabled => "Upload is OFF — processed videos are not uploaded",
+        { Stage: WorkflowStage.Uploading, ProcessingEnabled: false } => "Uploading the selected video directly…",
+        { Stage: WorkflowStage.Uploading } => "Uploading to server…",
+        { Stage: WorkflowStage.Assigning } => "Assigning the video to the player…",
+        { UploadEnabled: false } => "Upload Disabled",
+        not null => "Waiting for processing",
+        _ when CurrentEntry is { UploadStatus: UploadStatus.Disabled } => "Upload Disabled",
+        _ when !Settings.UploadEnabled => "Upload Disabled",
         _ => CurrentEntry is null ? "—" : $"{CurrentEntry.UploadStageText} · {CurrentEntry.AssignmentStageText}"
     };
-
-    public string CurrentCardText => _job is not null ? _job.CardNumber : SelectedEntry?.CardNumber ?? "—";
-
-    public string CurrentNameText => _job is not null ? _job.PrimaryName : SelectedEntry?.PrimaryName ?? string.Empty;
-
-    public string StageText => _job is not null
-        ? StageName(_job.Stage)
-        : SelectedEntry is null ? "—" : ToTitle(SelectedEntry.StatusText);
-
-    public string UploadProgressText => _job is { Stage: WorkflowStage.Uploading } ? JobPercentText : Settings.UploadEnabled ? "—" : "Off";
 
     // ---- Next entry --------------------------------------------------------
 
@@ -425,18 +557,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    public string PreviewBlockReason
-    {
-        get
-        {
-            if (SelectedEntry is null) return "Select an entry first.";
-            if (!SelectedEntry.HasLocalVideo) return "Select a video first.";
-            if (!SelectedEntry.LocalVideoExists) return "The selected video file is missing.";
-            if (IsBusy) return "Available once the current job finishes.";
-            return string.Empty;
-        }
-    }
-
     public string RetryBlockReason
     {
         get
@@ -445,12 +565,23 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             if (_job is not null) return $"Cart {_job.CardNumber} is {StageName(_job.Stage).ToLowerInvariant()}. One job at a time.";
             var label = SelectedEntry.RetryLabel;
             if (label is null) return "Nothing to retry.";
-            if (label != "RETRY PROCESSING" && !Settings.UploadEnabled) return "Upload is OFF. Switch it ON to retry.";
+            if (label != EntryItemViewModel.RetryProcessingLabel && !Settings.UploadEnabled) return "Upload is OFF. Switch it ON to upload.";
             return string.Empty;
         }
     }
 
-    public string RetryLabel => SelectedEntry?.RetryLabel ?? "RETRY";
+    public string RetryLabel => SelectedEntry?.RetryLabel ?? "Retry";
+
+    public string ClearVideoBlockReason
+    {
+        get
+        {
+            if (SelectedEntry is not { HasLocalVideo: true } entry) return "No video is selected.";
+            if (IsJobEntry(entry)) return "The video is in use by the running operation.";
+            if (entry.UploadStatus == UploadStatus.Completed) return "This video is already uploaded.";
+            return string.Empty;
+        }
+    }
 
     public string OpenOutputBlockReason
     {
@@ -605,6 +736,16 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         if (SelectedEntry is null)
             SelectedEntry = VisibleEntries.FirstOrDefault(e => e.IsEligibleForNext) ?? VisibleEntries.FirstOrDefault();
 
+        // The last workflow finished with nothing left to do; a new entry from the
+        // API is where the operator goes next, without a restart or reselection.
+        if (_awaitingNextAfter is { } finished && !IsBusy && ReferenceEquals(SelectedEntry, finished) &&
+            EntryOrdering.FindNext(Entries, finished, e => e.IsEligibleForNext) is { } next)
+        {
+            _awaitingNextAfter = null;
+            SelectEntry(next);
+            ShowBanner(BannerKind.Info, $"New entry received: cart {next.CardNumber} is selected. Select its video.");
+        }
+
         RefreshWorkContext();
         await TryResumeInterruptedAsync();
     }
@@ -634,23 +775,110 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private void OnLogLineWritten(object? sender, string line)
         => Application.Current?.Dispatcher.InvokeAsync(() =>
         {
-            LogLines.Add(line);
-            while (LogLines.Count > 500)
-                LogLines.RemoveAt(0);
+            var entry = LogEntry.Parse(line);
+            Logs.Add(entry);
+            if (Logs.Count > 2000)
+            {
+                Logs.RemoveAt(0);
+                if (VisibleLogs.Count > 0 && ReferenceEquals(VisibleLogs[0], Logs[0]))
+                    VisibleLogs.RemoveAt(0);
+            }
+            if (MatchesLogFilter(entry))
+                VisibleLogs.Add(entry);
+            OnPropertyChanged(nameof(LogCountText));
         });
 
     private void LoadRecentLogs()
     {
+        Logs.Clear();
         try
         {
-            if (!File.Exists(_log.LogFilePath))
-                return;
-            foreach (var line in File.ReadLines(_log.LogFilePath).TakeLast(300))
-                LogLines.Add(line);
+            if (File.Exists(_log.LogFilePath))
+            {
+                using var stream = new FileStream(_log.LogFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                var lines = new Queue<string>();
+                while (reader.ReadLine() is { } line)
+                {
+                    lines.Enqueue(line);
+                    if (lines.Count > 2000)
+                        lines.Dequeue();
+                }
+                Logs.AddRange(lines.Where(l => l.Length > 0).Select(LogEntry.Parse));
+            }
         }
         catch
         {
             // The log view must never prevent startup.
+        }
+        RebuildVisibleLogs();
+    }
+
+    private string _logLevelFilter = "All";
+    private string _logSearchText = string.Empty;
+
+    public IReadOnlyList<string> LogLevels { get; } = ["All", "INFO", "WARNING", "ERROR"];
+
+    public string LogLevelFilter
+    {
+        get => _logLevelFilter;
+        set
+        {
+            if (SetProperty(ref _logLevelFilter, value))
+                RebuildVisibleLogs();
+        }
+    }
+
+    public string LogSearchText
+    {
+        get => _logSearchText;
+        set
+        {
+            if (SetProperty(ref _logSearchText, value))
+                RebuildVisibleLogs();
+        }
+    }
+
+    public string LogCountText => VisibleLogs.Count == Logs.Count ? $"Total logs: {Logs.Count}" : $"Showing {VisibleLogs.Count} of {Logs.Count}";
+
+    private bool MatchesLogFilter(LogEntry entry)
+        => (LogLevelFilter == "All" || entry.Level == LogLevelFilter) &&
+           (string.IsNullOrWhiteSpace(LogSearchText) ||
+            entry.Message.Contains(LogSearchText.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            entry.Stage.Contains(LogSearchText.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private void RebuildVisibleLogs()
+    {
+        VisibleLogs.Clear();
+        foreach (var entry in Logs.Where(MatchesLogFilter))
+            VisibleLogs.Add(entry);
+        OnPropertyChanged(nameof(LogCountText));
+    }
+
+    /// <summary>Exports the visible rows as CSV. Log lines never contain credentials or tokens.</summary>
+    private void ExportLogs()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export logs",
+            Filter = "CSV file|*.csv",
+            FileName = $"race-video-processor-logs-{DateTime.Now:yyyyMMdd-HHmmss}.csv"
+        };
+        if (dialog.ShowDialog() != true)
+            return;
+
+        try
+        {
+            static string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+            var lines = new List<string> { "Time,Level,Stage,Message" };
+            lines.AddRange(VisibleLogs.Select(e => string.Join(',', Csv(e.Time), Csv(e.Level), Csv(e.Stage), Csv(e.Message))));
+            File.WriteAllLines(dialog.FileName, lines, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            _log.Info($"Logs exported: {VisibleLogs.Count} rows to {dialog.FileName}.");
+            ShowBanner(BannerKind.Success, $"Exported {VisibleLogs.Count} log rows.");
+        }
+        catch (Exception ex)
+        {
+            ShowBanner(BannerKind.Error, "Could not export the logs: " + ex.Message);
         }
     }
 
@@ -679,6 +907,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(HasVisibleEntries));
         OnPropertyChanged(nameof(EntryCountSummary));
         OnPropertyChanged(nameof(EmptyListText));
+        OnPropertyChanged(nameof(CountAll));
+        OnPropertyChanged(nameof(CountUploaded));
+        OnPropertyChanged(nameof(CountFailed));
+        OnPropertyChanged(nameof(CountReadyToUpload));
+        OnPropertyChanged(nameof(CountProcessing));
 
         // Filtering the selected entry out of view must not clear the workspace:
         // the operator keeps working on it until they pick something else.
@@ -689,19 +922,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    private bool MatchesFilter(EntryItemViewModel entry) => Filter switch
-    {
-        EntryFilter.All => true,
-        EntryFilter.Pending => entry.DisplayStatus is EntryDisplayStatus.NoVideo or EntryDisplayStatus.Ready
-            or EntryDisplayStatus.ExtractionPending or EntryDisplayStatus.VideoMissing,
-        EntryFilter.Active => entry.DisplayStatus is EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading
-            or EntryDisplayStatus.Assigning or EntryDisplayStatus.Processed,
-        EntryFilter.Completed => entry.DisplayStatus is EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo,
-        EntryFilter.Failed => entry.DisplayStatus is EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed
-            or EntryDisplayStatus.AssignmentFailed or EntryDisplayStatus.AuthenticationFailed
-            or EntryDisplayStatus.Cancelled or EntryDisplayStatus.Outdated,
-        _ => true
-    };
+    private bool MatchesFilter(EntryItemViewModel entry) => Filter == EntryFilter.All || entry.FilterBucket == Filter;
 
     // ---- Select video: starts the job --------------------------------------
 
@@ -719,7 +940,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
                 "Existing video",
                 "This entry already has a video. Replace it?",
                 $"Cart {entry.CardNumber} — {entry.PrimaryDisplay}\n\nCurrent video:\n{entry.VideoLink}",
-                "Replace processes the new video and, with upload ON, assigns it in place of the current one.",
+                Settings.UploadEnabled
+                    ? (Settings.ProcessingEnabled
+                        ? "Replace processes the new video, uploads it and assigns it in place of the current one."
+                        : "Replace uploads the new video directly, without processing, and assigns it in place of the current one.")
+                    : "Upload is OFF, so the video on the player is not changed until the new one is uploaded.",
                 new Choice("CANCEL", "cancel", IsCancel: true),
                 new Choice("SKIP", "skip"),
                 new Choice("REPLACE", "replace", ChoiceStyle.Danger));
@@ -750,11 +975,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         if (IsBusy || !ReferenceEquals(SelectedEntry, entry) || entry.Scope != CurrentScope)
             return;
 
+        // The toggles are read once, here: this operation keeps them to the end.
+        var processing = Settings.ProcessingEnabled;
+        var upload = Settings.UploadEnabled;
         var input = dialog.FileName;
-        var output = OutputPathFor(race, entry.Scope, input);
+        var output = processing ? OutputPathFor(race, entry.Scope, input) : string.Empty;
         var allowOverwrite = Settings.AllowOverwriteExistingOutput ||
                              string.Equals(output, entry.OutputPath, StringComparison.OrdinalIgnoreCase);
-        if (File.Exists(output) && !allowOverwrite)
+        if (processing && File.Exists(output) && !allowOverwrite)
         {
             var answer = MessageBox.Show(
                 $"A processed file already exists:\n\n{output}\n\nReplace it once the new video has been processed and validated?",
@@ -764,10 +992,12 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             allowOverwrite = true;
         }
 
-        // A newly selected video always starts from processing, whatever happened before.
+        // A newly selected video always starts over, whatever happened before.
         var state = entry.LocalState.Clone();
         state.LocalVideoPath = input;
         state.ProcessingStatus = LocalProcessingStatus.Ready;
+        state.Mode = WorkflowModes.From(processing, upload);
+        state.OutputPath = processing ? state.OutputPath : null;
         state.UploadStatus = UploadStatus.NotStarted;
         state.UploadedVideoLink = null;
         state.AssignmentStatus = AssignmentStatus.NotStarted;
@@ -776,9 +1006,38 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         state.UpdatedUtc = DateTimeOffset.UtcNow;
         await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
         entry.ReplaceLocalState(state);
-        _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: video selected: {input}");
+        _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: video selected: {input} " +
+                  $"(processing {(processing ? "ON" : "OFF")}, upload {(upload ? "ON" : "OFF")}).");
 
-        await RunJobAsync(entry, race, input, output, allowOverwrite, isRecovery: false);
+        await RunJobAsync(entry, race, input, output, allowOverwrite, isRecovery: false, processing, upload);
+    }
+
+    /// <summary>
+    /// Forgets the selected video for an entry that has not been uploaded. Files on
+    /// disk — the original and any processed output — are left where they are.
+    /// </summary>
+    private async Task ClearVideoAsync()
+    {
+        var entry = SelectedEntry;
+        if (entry is null || ClearVideoBlockReason.Length > 0)
+            return;
+
+        var state = entry.LocalState.Clone();
+        state.LocalVideoPath = null;
+        state.OutputPath = null;
+        state.Mode = null;
+        state.ProcessingStatus = LocalProcessingStatus.VideoNotSelected;
+        state.UploadStatus = UploadStatus.NotStarted;
+        state.UploadedVideoLink = null;
+        state.AssignmentStatus = AssignmentStatus.NotStarted;
+        state.LastFailureWasAuthentication = false;
+        state.ErrorMessage = null;
+        state.UpdatedUtc = DateTimeOffset.UtcNow;
+        await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
+        entry.ReplaceLocalState(state);
+        _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: video selection cleared; no files were deleted.");
+        RebuildVisibleEntries();
+        RefreshWorkContext();
     }
 
     private async Task RetryAsync()
@@ -790,11 +1049,12 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
         _log.Info($"[{entry.Scope}] cart {entry.CardNumber}: {label.ToLowerInvariant()} requested.");
 
-        if (label == "RETRY PROCESSING")
+        if (label == EntryItemViewModel.RetryProcessingLabel)
         {
             var input = entry.LocalVideoPath!;
             var state = entry.LocalState.Clone();
             state.ProcessingStatus = LocalProcessingStatus.Ready;
+            state.Mode = WorkflowModes.From(true, Settings.UploadEnabled);
             state.UploadStatus = UploadStatus.NotStarted;
             state.UploadedVideoLink = null;
             state.AssignmentStatus = AssignmentStatus.NotStarted;
@@ -802,13 +1062,26 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             state.UpdatedUtc = DateTimeOffset.UtcNow;
             await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
             entry.ReplaceLocalState(state);
-            await RunJobAsync(entry, race, input, OutputPathFor(race, entry.Scope, input), allowOverwrite: true, isRecovery: false);
+            await RunJobAsync(entry, race, input, OutputPathFor(race, entry.Scope, input), allowOverwrite: true,
+                isRecovery: false, processingEnabled: true, uploadEnabled: Settings.UploadEnabled);
             return;
         }
 
-        // Upload or assignment: completed stages are skipped, so a failed PATCH is
-        // retried with the link already obtained, without uploading again.
-        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true, isRecovery: false);
+        if (label == EntryItemViewModel.UploadNowLabel)
+        {
+            var state = entry.LocalState.Clone();
+            state.UploadStatus = UploadStatus.NotStarted;
+            state.UpdatedUtc = DateTimeOffset.UtcNow;
+            await _repository.UpsertEntryStateAsync(state, _lifetimeCts.Token);
+            entry.ReplaceLocalState(state);
+        }
+
+        // Upload or assignment, from the source the operation used: the processed
+        // file, or the selected file when processing was OFF. Completed stages are
+        // skipped, so a failed PATCH is retried without uploading again, and a
+        // direct upload is never turned into processing.
+        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true,
+            isRecovery: false, processingEnabled: !entry.LocalState.IsDirect, uploadEnabled: true);
     }
 
     /// <summary>
@@ -828,12 +1101,15 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             return;
 
         _log.Info($"Recovery: resuming [{entry.Scope}] cart {entry.CardNumber} from " +
-                  (entry.UploadStatus == UploadStatus.Completed ? "assignment, reusing the uploaded link." : "upload, reusing the processed file."));
-        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true, isRecovery: true);
+                  (entry.UploadStatus == UploadStatus.Completed ? "assignment, reusing the uploaded link."
+                      : entry.LocalState.IsDirect ? "direct upload of the selected video." : "upload, reusing the processed file."));
+        await RunJobAsync(entry, race, entry.LocalVideoPath, entry.OutputPath ?? string.Empty, allowOverwrite: true,
+            isRecovery: true, processingEnabled: !entry.LocalState.IsDirect, uploadEnabled: true);
     }
 
     private async Task RunJobAsync(
-        EntryItemViewModel entry, Race race, string? input, string output, bool allowOverwrite, bool isRecovery)
+        EntryItemViewModel entry, Race race, string? input, string output, bool allowOverwrite, bool isRecovery,
+        bool processingEnabled, bool uploadEnabled)
     {
         var scope = entry.Scope;
         var job = new WorkflowJob(
@@ -844,11 +1120,16 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             ToOverlay(entry.Entry),
             OverlayHashCalculator.Calculate(entry.Entry),
             allowOverwrite,
-            Settings.UploadEnabled);
+            uploadEnabled,
+            processingEnabled);
 
-        _job = new ActiveJob(scope, entry.EntryId, entry.CardNumber, entry.PrimaryName, isRecovery);
+        _awaitingNextAfter = null;
+        _job = new ActiveJob(scope, entry.EntryId, entry.CardNumber, entry.PrimaryName, isRecovery, processingEnabled, uploadEnabled)
+        {
+            Stage = processingEnabled ? WorkflowStage.Processing : WorkflowStage.Uploading
+        };
         _jobCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        ProcessingFile = Path.GetFileName(input ?? output);
+        ProcessingFile = Path.GetFileName(string.IsNullOrWhiteSpace(input) ? output : input);
         ProcessingElapsed = "00:00";
         ProcessingEta = "—";
         JobPercent = 0;
@@ -871,8 +1152,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
             JobPercentKnown = p.Percent.HasValue;
             JobPercent = p.Percent ?? 0;
-            OnPropertyChanged(nameof(UploadProgressText));
-
+    
             JobBytesText = p.Upload is { TotalBytes: > 0 } upload
                 ? $"{upload.BytesSent / 1048576d:0.0} MB / {upload.TotalBytes.Value / 1048576d:0.0} MB"
                 : string.Empty;
@@ -921,16 +1201,25 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         RefreshWorkContext();
 
         var card = $"Cart {job.Entry.CardNumber}";
-        var processedOutput = result.State.ProcessingStatus == LocalProcessingStatus.Completed ? result.State.OutputPath : null;
         switch (result.Outcome)
         {
             case WorkflowOutcome.Completed:
-                ShowBanner(BannerKind.Success, $"{card} completed: processed, uploaded and assigned.");
+                ShowBanner(BannerKind.Success, processingEnabled
+                    ? $"{card} completed: processed, uploaded and assigned."
+                    : $"{card} completed: uploaded directly without processing, and assigned.");
                 if (!isRecovery && current is not null && scope == CurrentScope)
-                    SelectNextEntryAfter(current);
+                {
+                    // Pick up entries that arrived while this one was running before choosing the next.
+                    await _polling.PollNowAsync(_lifetimeCts.Token);
+                    if (!IsBusy && ReferenceEquals(SelectedEntry, current))
+                        SelectNextEntryAfter(current);
+                }
                 break;
             case WorkflowOutcome.UploadDisabled:
-                ShowBanner(BannerKind.Success, $"{card}: Processing Completed. Upload is OFF, so nothing was uploaded or assigned.");
+                ShowBanner(BannerKind.Success, $"{card}: Processing Completed · Upload Disabled. The processed file is kept: {result.State.OutputPath}");
+                break;
+            case WorkflowOutcome.SelectionOnly:
+                ShowBanner(BannerKind.Info, $"{card}: Processing Disabled · Upload Disabled. The video stays selected; nothing was processed or uploaded.");
                 break;
             case WorkflowOutcome.ProcessingCancelled:
                 ShowBanner(BannerKind.Info, $"{card}: Processing Cancelled. Nothing was uploaded; the original video is untouched.");
@@ -945,9 +1234,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
                 break;
         }
 
-        if (processedOutput is not null && !isRecovery)
-            await ShowOutputPreviewAsync(job.Entry.CardNumber, processedOutput);
-
         await TryResumeInterruptedAsync();
     }
 
@@ -960,22 +1246,29 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         var next = EntryOrdering.FindNext(Entries, entry, e => e.IsEligibleForNext);
         if (next is null)
         {
-            ShowBanner(BannerKind.Info, $"No pending entries left in {SelectedCategoryLabel}.");
+            // Stay here; the next entry the API sends is selected automatically.
+            _awaitingNextAfter = entry;
+            ShowBanner(BannerKind.Info, $"No pending entries left in {SelectedCategoryLabel}. The next new entry will be selected as soon as it arrives.");
             return;
         }
 
-        if (!VisibleEntries.Contains(next))
+        SelectEntry(next);
+        _log.Info($"[{next.Scope}] next entry selected: cart {next.CardNumber}. Waiting for its video.");
+    }
+
+    private void SelectEntry(EntryItemViewModel entry)
+    {
+        if (!VisibleEntries.Contains(entry))
         {
             SearchText = string.Empty;
             Filter = EntryFilter.All;
         }
-
-        SelectedEntry = next;
-        _log.Info($"[{next.Scope}] next entry selected: cart {next.CardNumber}. Waiting for its video.");
+        SelectedEntry = entry;
     }
 
     private void CancelProcessing()
     {
+        // Only FFmpeg can be cancelled; an upload or assignment always runs to its result.
         if (_job is { Stage: WorkflowStage.Processing } && _jobCts is { IsCancellationRequested: false })
         {
             _log.Info($"[{_job.Scope}] cart {_job.CardNumber}: cancel requested.");
@@ -1008,85 +1301,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim().TrimEnd('.');
         return cleaned.Length == 0 ? "race" : cleaned;
-    }
-
-    // ---- Preview -----------------------------------------------------------
-
-    private string? _previewNormalPath;
-    private string? _previewFinalPath;
-    private string _previewCaption = "Select a video, or PREVIEW, to see the scoreboard on the footage.";
-    private bool _isPreviewBusy;
-
-    /// <summary>A frame during the race, with the scoreboard.</summary>
-    public string? PreviewNormalPath { get => _previewNormalPath; private set { if (SetProperty(ref _previewNormalPath, value)) OnPropertyChanged(nameof(HasPreview)); } }
-
-    /// <summary>A frame from the final seconds, with the scoreboard and the timing plaque.</summary>
-    public string? PreviewFinalPath { get => _previewFinalPath; private set => SetProperty(ref _previewFinalPath, value); }
-
-    public string PreviewCaption { get => _previewCaption; private set => SetProperty(ref _previewCaption, value); }
-    public bool IsPreviewBusy { get => _isPreviewBusy; private set => SetProperty(ref _isPreviewBusy, value); }
-    public bool HasPreview => PreviewNormalPath is not null;
-
-    /// <summary>Renders two frames of the selected video with the scoreboard, shown in the workspace.</summary>
-    private async Task PreviewAsync()
-    {
-        var entry = SelectedEntry;
-        if (entry?.LocalVideoPath is not string input || !File.Exists(input))
-            return;
-
-        IsPreviewBusy = true;
-        try
-        {
-            var preview = await _videoProcessing.GeneratePreviewAsync(input, ToOverlay(entry.Entry), _lifetimeCts.Token);
-            ShowPreview(preview.NormalPreviewPath, preview.FinalPreviewPath,
-                $"Preview · Cart {entry.CardNumber} · {Path.GetFileName(input)}");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _log.Error($"Cart {entry.CardNumber}: preview failed: {ex.Message}");
-            ShowBanner(BannerKind.Error, $"Cart {entry.CardNumber}: preview failed. {ex.Message}");
-        }
-        finally
-        {
-            IsPreviewBusy = false;
-        }
-    }
-
-    /// <summary>Two frames taken from the processed file itself: exactly what was encoded.</summary>
-    private async Task ShowOutputPreviewAsync(string cardNumber, string outputPath)
-    {
-        if (!File.Exists(outputPath))
-            return;
-
-        var directory = Path.Combine(Path.GetTempPath(), "RaceVideoProcessor", "previews", Guid.NewGuid().ToString("N"));
-        IsPreviewBusy = true;
-        try
-        {
-            var normal = await _videoProcessing.ExtractFrameAsync(outputPath,
-                -(Settings.CompletionTimeDisplaySeconds + 2), Path.Combine(directory, "normal.png"), _lifetimeCts.Token);
-            var final = await _videoProcessing.ExtractFrameAsync(outputPath, -1.0, Path.Combine(directory, "final.png"), _lifetimeCts.Token);
-            ShowPreview(normal, final, $"Processed output · Cart {cardNumber} · {Path.GetFileName(outputPath)}");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // The output is already validated; a missing preview frame is not a failure.
-            _log.Error($"Cart {cardNumber}: could not extract preview frames: {ex.Message}");
-            TryDeleteDirectory(directory);
-        }
-        finally
-        {
-            IsPreviewBusy = false;
-        }
-    }
-
-    private void ShowPreview(string normal, string final, string caption)
-    {
-        var previous = PreviewNormalPath;
-        PreviewNormalPath = normal;
-        PreviewFinalPath = final;
-        PreviewCaption = caption;
-        if (previous is not null)
-            TryDeleteDirectory(Path.GetDirectoryName(previous));
     }
 
     // ---- Demo --------------------------------------------------------------
@@ -1204,21 +1418,21 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(IsUploading));
         OnPropertyChanged(nameof(ProcessingSummary));
         OnPropertyChanged(nameof(JobPercentText));
-        OnPropertyChanged(nameof(CurrentCardText));
-        OnPropertyChanged(nameof(CurrentNameText));
-        OnPropertyChanged(nameof(StageText));
         OnPropertyChanged(nameof(SelectedVideoText));
-        OnPropertyChanged(nameof(IsProcessingStageVisible));
         OnPropertyChanged(nameof(CurrentEntry));
         OnPropertyChanged(nameof(HasCurrentEntry));
         OnPropertyChanged(nameof(IsAssigning));
         OnPropertyChanged(nameof(UploadStateText));
         OnPropertyChanged(nameof(UploadEnabled));
-        OnPropertyChanged(nameof(UploadProgressText));
+        OnPropertyChanged(nameof(ProcessingEnabled));
         OnPropertyChanged(nameof(NextEntry));
         OnPropertyChanged(nameof(HasNextEntry));
         OnPropertyChanged(nameof(SelectVideoBlockReason));
-        OnPropertyChanged(nameof(PreviewBlockReason));
+        OnPropertyChanged(nameof(ClearVideoBlockReason));
+        OnPropertyChanged(nameof(IsDirectJob));
+        OnPropertyChanged(nameof(ProcessingStateText));
+        OnPropertyChanged(nameof(ProcessingStageDetail));
+        OnPropertyChanged(nameof(StatusBarText));
         OnPropertyChanged(nameof(RetryBlockReason));
         OnPropertyChanged(nameof(RetryLabel));
         OnPropertyChanged(nameof(OpenOutputBlockReason));
@@ -1242,24 +1456,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         _ => "Processing"
     };
 
-    private static string ToTitle(string upper)
-        => string.Join(' ', upper.Split(' ').Select(w => w.Length <= 1 ? w : w[0] + w[1..].ToLowerInvariant()));
-
     private static string FormatShortDuration(TimeSpan value)
         => value.TotalHours >= 1 ? value.ToString(@"hh\:mm\:ss") : value.ToString(@"mm\:ss");
-
-    private static void TryDeleteDirectory(string? path)
-    {
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
-        catch
-        {
-            // Preview scratch files are disposable.
-        }
-    }
 
     public async ValueTask DisposeAsync()
     {

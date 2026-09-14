@@ -27,7 +27,16 @@ public enum EntryDisplayStatus
     Failed,
     UploadFailed,
     AssignmentFailed,
-    AuthenticationFailed
+    AuthenticationFailed,
+
+    /// <summary>Processed; upload was OFF.</summary>
+    UploadDisabled,
+
+    /// <summary>Processing OFF, the selected file waits for its direct upload.</summary>
+    ReadyForDirectUpload,
+
+    /// <summary>Processing and upload OFF: the video is only selected.</summary>
+    SelectedOnly
 }
 
 /// <summary>
@@ -62,6 +71,8 @@ public sealed class EntryItemViewModel : ObservableObject
 
     public string PrimaryName => _entry.PrimaryName;
     public string PrimaryLocation => _entry.PrimaryLocation;
+    public bool HasPrimaryLocation => !string.IsNullOrWhiteSpace(_entry.PrimaryLocation);
+    public bool HasSecondaryLocation => _entry.HasSecondary && !string.IsNullOrWhiteSpace(_entry.SecondaryLocation);
     public string PrimaryDisplay => _entry.PrimaryDisplay;
     public string SecondaryDisplay => _entry.SecondaryDisplay;
     public string SecondaryName => _entry.HasSecondary ? _entry.SecondaryName!.Trim() : "—";
@@ -129,6 +140,7 @@ public sealed class EntryItemViewModel : ObservableObject
         LocalProcessingStatus.Cancelled => "Processing Cancelled",
         LocalProcessingStatus.Outdated => "Outdated — race data changed",
         LocalProcessingStatus.Ready => "Ready",
+        LocalProcessingStatus.Skipped => "Processing Disabled",
         _ => "Not started"
     };
 
@@ -167,18 +179,33 @@ public sealed class EntryItemViewModel : ObservableObject
     public string? ErrorMessage => _localState.ErrorMessage;
     public bool HasError => !string.IsNullOrWhiteSpace(_localState.ErrorMessage);
 
-    /// <summary>What a retry would do next, or null when there is nothing to retry.</summary>
+    public const string RetryProcessingLabel = "Retry Processing";
+    public const string RetryUploadLabel = "Retry Upload";
+    public const string RetryAssignmentLabel = "Retry Assignment";
+    public const string UploadNowLabel = "Upload Now";
+
+    /// <summary>
+    /// What a retry would do next, or null when there is nothing to retry. A retry
+    /// repeats only the stage that did not finish, from the source that operation
+    /// used: the processed file, or the selected file for a direct upload.
+    /// </summary>
     public string? RetryLabel
     {
         get
         {
+            var processedOrDirect = _localState.ProcessingStatus is LocalProcessingStatus.Completed or LocalProcessingStatus.Skipped;
             if (_localState.ProcessingStatus is LocalProcessingStatus.Failed or LocalProcessingStatus.Cancelled
                 or LocalProcessingStatus.Outdated && LocalVideoExists)
-                return "RETRY PROCESSING";
-            if (_localState.ProcessingStatus == LocalProcessingStatus.Completed && _localState.UploadStatus == UploadStatus.Failed)
-                return "RETRY UPLOAD";
+                return RetryProcessingLabel;
+            if (processedOrDirect && _localState.UploadStatus == UploadStatus.Failed)
+                return RetryUploadLabel;
             if (_localState.UploadStatus == UploadStatus.Completed && _localState.AssignmentStatus == AssignmentStatus.Failed)
-                return "RETRY ASSIGNMENT";
+                return RetryAssignmentLabel;
+            // A local-only result (processed with upload OFF, or selected with both OFF)
+            // can be sent once upload is switched ON.
+            if (processedOrDirect && _localState.UploadStatus == UploadStatus.Disabled &&
+                _localState.UploadSourcePath is { } source && File.Exists(source))
+                return UploadNowLabel;
             return null;
         }
     }
@@ -201,6 +228,9 @@ public sealed class EntryItemViewModel : ObservableObject
                         : EntryDisplayStatus.Failed;
                 case OverallStatus.ProcessingCompleted:
                 case OverallStatus.UploadCompleted: return EntryDisplayStatus.Processed;
+                case OverallStatus.UploadDisabled: return EntryDisplayStatus.UploadDisabled;
+                case OverallStatus.ReadyForDirectUpload: return EntryDisplayStatus.ReadyForDirectUpload;
+                case OverallStatus.ProcessingDisabled: return EntryDisplayStatus.SelectedOnly;
                 case OverallStatus.Uploading: return EntryDisplayStatus.Uploading;
                 case OverallStatus.UploadFailed: return EntryDisplayStatus.UploadFailed;
                 case OverallStatus.Assigning: return EntryDisplayStatus.Assigning;
@@ -221,22 +251,25 @@ public sealed class EntryItemViewModel : ObservableObject
 
     public string StatusText => DisplayStatus switch
     {
-        EntryDisplayStatus.Processing => "PROCESSING",
-        EntryDisplayStatus.Processed => _localState.UploadStatus == UploadStatus.Disabled ? "PROCESSED · UPLOAD OFF" : "PROCESSED",
-        EntryDisplayStatus.Uploading => "UPLOADING",
-        EntryDisplayStatus.Assigning => "ASSIGNING",
-        EntryDisplayStatus.Completed => "COMPLETED",
-        EntryDisplayStatus.Outdated => "OUTDATED",
-        EntryDisplayStatus.Cancelled => "CANCELLED",
-        EntryDisplayStatus.Failed => "PROCESSING FAILED",
-        EntryDisplayStatus.UploadFailed => "UPLOAD FAILED",
-        EntryDisplayStatus.AssignmentFailed => "ASSIGNMENT FAILED",
-        EntryDisplayStatus.AuthenticationFailed => "AUTH FAILED",
-        EntryDisplayStatus.VideoMissing => "VIDEO MISSING",
-        EntryDisplayStatus.ExtractionPending => "NOT COMPLETED",
-        EntryDisplayStatus.HasVideo => "HAS VIDEO",
-        EntryDisplayStatus.NoVideo => "READY FOR UPLOAD",
-        _ => "READY"
+        EntryDisplayStatus.Processing => "Processing",
+        EntryDisplayStatus.Processed => "Processed",
+        EntryDisplayStatus.UploadDisabled => "Processed · Upload Off",
+        EntryDisplayStatus.ReadyForDirectUpload => "Direct Upload",
+        EntryDisplayStatus.SelectedOnly => "Selected",
+        EntryDisplayStatus.Uploading => "Uploading",
+        EntryDisplayStatus.Assigning => "Assigning",
+        EntryDisplayStatus.Completed => "Uploaded",
+        EntryDisplayStatus.Outdated => "Outdated",
+        EntryDisplayStatus.Cancelled => "Cancelled",
+        EntryDisplayStatus.Failed => "Processing Failed",
+        EntryDisplayStatus.UploadFailed => "Upload Failed",
+        EntryDisplayStatus.AssignmentFailed => "Assign Failed",
+        EntryDisplayStatus.AuthenticationFailed => "Auth Failed",
+        EntryDisplayStatus.VideoMissing => "Video Missing",
+        EntryDisplayStatus.ExtractionPending => "Not Completed",
+        EntryDisplayStatus.HasVideo => "Uploaded",
+        EntryDisplayStatus.NoVideo => "Pending",
+        _ => "Ready"
     };
 
     /// <summary>Shape as well as colour, so status is never carried by colour alone.</summary>
@@ -244,7 +277,8 @@ public sealed class EntryItemViewModel : ObservableObject
     {
         EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading or EntryDisplayStatus.Assigning => "⟳",
         EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo => "✓",
-        EntryDisplayStatus.Processed => "◐",
+        EntryDisplayStatus.Processed or EntryDisplayStatus.UploadDisabled or EntryDisplayStatus.ReadyForDirectUpload => "◐",
+        EntryDisplayStatus.SelectedOnly => "◉",
         EntryDisplayStatus.Outdated or EntryDisplayStatus.VideoMissing => "⚠",
         EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed or EntryDisplayStatus.AssignmentFailed
             or EntryDisplayStatus.AuthenticationFailed => "✕",
@@ -252,6 +286,21 @@ public sealed class EntryItemViewModel : ObservableObject
         EntryDisplayStatus.ExtractionPending => "◷",
         EntryDisplayStatus.NoVideo => "○",
         _ => "●"
+    };
+
+    /// <summary>
+    /// The one status filter this entry belongs to besides All. Disabled stages are
+    /// never failures: a processed-only or selected-only entry is still ready to upload.
+    /// </summary>
+    public EntryFilter FilterBucket => DisplayStatus switch
+    {
+        EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo => EntryFilter.Uploaded,
+        EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed or EntryDisplayStatus.AssignmentFailed
+            or EntryDisplayStatus.AuthenticationFailed or EntryDisplayStatus.VideoMissing
+            or EntryDisplayStatus.Cancelled or EntryDisplayStatus.Outdated => EntryFilter.Failed,
+        EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading or EntryDisplayStatus.Assigning
+            or EntryDisplayStatus.Processed or EntryDisplayStatus.ReadyForDirectUpload => EntryFilter.Processing,
+        _ => EntryFilter.ReadyToUpload
     };
 
     /// <summary>"Not Uploaded" or "Already Assigned", from the video link alone.</summary>

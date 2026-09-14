@@ -134,8 +134,9 @@ public sealed class OverallStatusTests
         s.ProcessingStatus = LocalProcessingStatus.Completed;
         Assert.Equal(OverallStatus.ProcessingCompleted, s.Overall);
 
+        // Upload OFF is a normal outcome, not a failure.
         s.UploadStatus = UploadStatus.Disabled;
-        Assert.Equal(OverallStatus.ProcessingCompleted, s.Overall);
+        Assert.Equal(OverallStatus.UploadDisabled, s.Overall);
 
         s.UploadStatus = UploadStatus.Uploading;
         Assert.Equal(OverallStatus.Uploading, s.Overall);

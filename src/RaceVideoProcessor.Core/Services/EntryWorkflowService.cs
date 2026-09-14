@@ -16,7 +16,12 @@ public sealed record WorkflowJob(
     OverlayData Overlay,
     string OverlayHash,
     bool AllowOverwrite,
-    bool UploadEnabled);
+    bool UploadEnabled,
+    bool ProcessingEnabled = true)
+{
+    /// <summary>The stages this job runs, fixed when it was created.</summary>
+    public WorkflowMode Mode => WorkflowModes.From(ProcessingEnabled, UploadEnabled);
+}
 
 public enum WorkflowStage
 {
@@ -34,11 +39,14 @@ public sealed record WorkflowProgress(
 
 public enum WorkflowOutcome
 {
-    /// <summary>Processed, uploaded and assigned.</summary>
+    /// <summary>Uploaded and assigned — after processing, or directly with processing OFF.</summary>
     Completed,
 
     /// <summary>Processed; upload is OFF, so nothing was uploaded or assigned. Not an error.</summary>
     UploadDisabled,
+
+    /// <summary>Processing and upload both OFF: the video is only selected. Not an error.</summary>
+    SelectionOnly,
 
     ProcessingFailed,
     ProcessingCancelled,
@@ -53,14 +61,19 @@ public enum WorkflowOutcome
 public sealed record WorkflowResult(WorkflowOutcome Outcome, EntryLocalState State, string? Error);
 
 /// <summary>
-/// Runs process → upload → assign for one entry, persisting each stage as it
-/// starts and finishes, and skipping any stage that already completed:
+/// Runs one entry's operation in the job's <see cref="WorkflowMode"/>, persisting
+/// each stage as it starts and finishes and never repeating a completed stage:
+///
+///   ProcessAndUpload  process → upload the processed file → assign
+///   ProcessOnly       process, keep the output, stop
+///   DirectUpload      no FFmpeg at all → upload the selected file → assign
+///   SelectionOnly     nothing runs; the selection is recorded
 ///
 ///   * processing is skipped when a validated output is still on disk, or the
 ///     upload already succeeded;
 ///   * upload is skipped when a link was already obtained, so a failed PATCH is
 ///     retried without uploading again;
-///   * with upload OFF, the job stops after processing and never uploads or assigns.
+///   * a disabled stage is recorded as disabled or skipped, never as failed.
 ///
 /// Cancelling during processing marks the entry cancelled and stops before
 /// upload. Stage failures are returned, never thrown.
@@ -101,14 +114,25 @@ public sealed class EntryWorkflowService
         // ---- Processing ----------------------------------------------------
 
         var uploadAlreadyDone = state.UploadStatus == UploadStatus.Completed && !string.IsNullOrWhiteSpace(state.UploadedVideoLink);
-        var haveOutput = state.ProcessingStatus == LocalProcessingStatus.Completed &&
-                         !string.IsNullOrWhiteSpace(state.OutputPath) && File.Exists(state.OutputPath);
+        state.Mode = job.Mode;
 
-        if (!uploadAlreadyDone && !haveOutput)
+        if (job.ProcessingEnabled)
         {
-            var processed = await ProcessAsync(job, state, context, progress, cancellationToken).ConfigureAwait(false);
-            if (processed is not null)
-                return processed;
+            var haveOutput = state.ProcessingStatus == LocalProcessingStatus.Completed &&
+                             !string.IsNullOrWhiteSpace(state.OutputPath) && File.Exists(state.OutputPath);
+
+            if (!uploadAlreadyDone && !haveOutput)
+            {
+                var processed = await ProcessAsync(job, state, context, progress, cancellationToken).ConfigureAwait(false);
+                if (processed is not null)
+                    return processed;
+            }
+        }
+        else if (!uploadAlreadyDone)
+        {
+            var skipped = await SkipProcessingAsync(job, state, context).ConfigureAwait(false);
+            if (skipped is not null)
+                return skipped;
         }
 
         // ---- Upload --------------------------------------------------------
@@ -119,11 +143,19 @@ public sealed class EntryWorkflowService
             {
                 state.UploadStatus = UploadStatus.Disabled;
                 state.AssignmentStatus = AssignmentStatus.NotStarted;
+                state.ErrorMessage = null;
                 await SaveAsync(state).ConfigureAwait(false);
             }
-            _log.Info($"{context}: upload is OFF — processed only, nothing uploaded or assigned.");
-            Report(progress, WorkflowStage.Processing, 100, null, state);
-            return new WorkflowResult(WorkflowOutcome.UploadDisabled, state.Clone(), null);
+
+            if (job.ProcessingEnabled)
+            {
+                _log.Info($"{context}: upload is OFF — processed only, nothing uploaded or assigned.");
+                Report(progress, WorkflowStage.Processing, 100, null, state);
+                return new WorkflowResult(WorkflowOutcome.UploadDisabled, state.Clone(), null);
+            }
+
+            _log.Info($"{context}: processing and upload are OFF — video selected only; nothing processed, uploaded or assigned.");
+            return new WorkflowResult(WorkflowOutcome.SelectionOnly, state.Clone(), null);
         }
 
         if (!uploadAlreadyDone)
@@ -209,13 +241,55 @@ public sealed class EntryWorkflowService
         return null;
     }
 
+    /// <summary>
+    /// Processing OFF: the selected file is used exactly as it is. FFmpeg is not
+    /// run and no copy is made; the file must simply still be there.
+    /// </summary>
+    private async Task<WorkflowResult?> SkipProcessingAsync(WorkflowJob job, EntryLocalState state, string context)
+    {
+        var input = FirstNonEmpty(job.InputPath, state.LocalVideoPath);
+        state.LocalVideoPath = input;
+        state.OutputPath = null;
+        state.LastFailureWasAuthentication = false;
+
+        if (input is null || !File.Exists(input))
+        {
+            state.ProcessingStatus = LocalProcessingStatus.Skipped;
+            if (job.UploadEnabled)
+            {
+                state.UploadStatus = UploadStatus.Failed;
+                state.ErrorMessage = "Upload Failed: the selected video file was not found. Select the video again.";
+                await SaveAsync(state).ConfigureAwait(false);
+                _log.Error($"{context}: {state.ErrorMessage}");
+                return new WorkflowResult(WorkflowOutcome.UploadFailed, state.Clone(), state.ErrorMessage);
+            }
+        }
+
+        if (state.ProcessingStatus != LocalProcessingStatus.Skipped)
+        {
+            state.ProcessingStatus = LocalProcessingStatus.Skipped;
+            state.UploadStatus = UploadStatus.NotStarted;
+            state.UploadedVideoLink = null;
+            state.AssignmentStatus = AssignmentStatus.NotStarted;
+        }
+        state.ErrorMessage = null;
+        await SaveAsync(state).ConfigureAwait(false);
+        _log.Info(job.UploadEnabled
+            ? $"{context}: processing disabled — direct upload mode; FFmpeg is not run ({Path.GetFileName(input)})."
+            : $"{context}: processing disabled; FFmpeg is not run ({Path.GetFileName(input)}).");
+        return null;
+    }
+
     private async Task<WorkflowResult?> UploadAsync(
         EntryLocalState state, string context, IProgress<WorkflowProgress>? progress, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(state.OutputPath) || !File.Exists(state.OutputPath))
+        var source = state.UploadSourcePath;
+        if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
         {
             state.UploadStatus = UploadStatus.Failed;
-            state.ErrorMessage = "Upload Failed: the processed video is no longer on disk. Select the video again to reprocess.";
+            state.ErrorMessage = state.IsDirect
+                ? "Upload Failed: the selected video is no longer on disk. Select the video again."
+                : "Upload Failed: the processed video is no longer on disk. Select the video again to reprocess.";
             await SaveAsync(state).ConfigureAwait(false);
             return new WorkflowResult(WorkflowOutcome.UploadFailed, state.Clone(), state.ErrorMessage);
         }
@@ -226,14 +300,16 @@ public sealed class EntryWorkflowService
         state.ErrorMessage = null;
         await SaveAsync(state).ConfigureAwait(false);
         Report(progress, WorkflowStage.Uploading, 0, null, state);
-        _log.Info($"{context}: upload started via {_publisher.Name}.");
+        _log.Info(state.IsDirect
+            ? $"{context}: direct upload started via {_publisher.Name} — the selected video as it is ({Path.GetFileName(source)})."
+            : $"{context}: upload started via {_publisher.Name} ({Path.GetFileName(source)}).");
 
         var uploadProgress = new InlineProgress<UploadProgress>(p =>
             progress?.Report(new WorkflowProgress(WorkflowStage.Uploading, p.Percent, null, state.Clone(), p)));
 
         try
         {
-            var link = await _publisher.UploadAsync(state.OutputPath, uploadProgress, cancellationToken).ConfigureAwait(false);
+            var link = await _publisher.UploadAsync(source, uploadProgress, cancellationToken).ConfigureAwait(false);
             state.UploadStatus = UploadStatus.Completed;
             state.UploadedVideoLink = link;
             await SaveAsync(state).ConfigureAwait(false);
@@ -354,7 +430,7 @@ public static class WorkflowRecovery
         if (state.ProcessingStatus == LocalProcessingStatus.Processing)
         {
             state.ProcessingStatus = LocalProcessingStatus.Failed;
-            state.ErrorMessage = "Processing Failed: the application closed while processing. Select the video again to retry.";
+            state.ErrorMessage = "Processing Failed: the application closed while processing. Retry processing to start again.";
             changed = true;
         }
 
@@ -376,13 +452,17 @@ public static class WorkflowRecovery
     }
 
     /// <summary>
-    /// A completed stage whose next stage never started: only reachable when the
-    /// application stopped between stages, so it resumes automatically.
-    /// Failed stages are not resumed automatically; the operator retries them.
+    /// A completed (or deliberately skipped) stage whose next stage never started:
+    /// only reachable when the application stopped between stages, so it resumes
+    /// automatically — from the processed file, from the selected file in direct
+    /// mode, or from the uploaded link. Failed stages are not resumed
+    /// automatically; the operator retries them. A disabled upload is never
+    /// resumed: that operation was deliberately local.
     /// </summary>
     public static bool NeedsAutomaticResume(EntryLocalState state, bool uploadEnabled)
         => uploadEnabled &&
-           state.ProcessingStatus == LocalProcessingStatus.Completed &&
+           (state.ProcessingStatus == LocalProcessingStatus.Completed ||
+            (state.ProcessingStatus == LocalProcessingStatus.Skipped && !string.IsNullOrWhiteSpace(state.LocalVideoPath))) &&
            (state.UploadStatus == UploadStatus.NotStarted ||
             (state.UploadStatus == UploadStatus.Completed && state.AssignmentStatus == AssignmentStatus.NotStarted));
 }

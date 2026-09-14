@@ -8,19 +8,10 @@ namespace RaceVideoProcessor.Core.Interfaces;
 public sealed record FontResolution(string? Path, string Name, bool SupportsTamil, string Source);
 
 /// <summary>
-/// Finds a font file for FFmpeg's drawtext filter.
-///
-/// drawtext's <c>font=</c> lookup needs fontconfig, which Windows FFmpeg builds
-/// generally lack, so an explicit <c>fontfile=</c> path is the only reliable
-/// option. Race data is Tamil, so the font must cover the Tamil block.
+/// Finds a Tamil-capable system font: the stand-in when the bundled scoreboard fonts are missing,
+/// and the font reported in Settings. Race data is Tamil, so the font must cover the Tamil block.
 /// </summary>
 public interface IFontResolver
 {
     FontResolution Resolve();
-
-    /// <summary>
-    /// A bold Latin font for the cart number and the timing value, matching the
-    /// reference design's Inter/Arial numerals. Falls back to <see cref="Resolve"/>.
-    /// </summary>
-    FontResolution ResolveNumeric() => Resolve();
 }

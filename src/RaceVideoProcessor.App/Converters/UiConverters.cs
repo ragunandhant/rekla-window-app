@@ -64,37 +64,6 @@ public sealed class EqualsParameterConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-/// <summary>
-/// A file path to an image, loaded fully into memory so the file is not locked
-/// and can be deleted when the preview is replaced.
-/// </summary>
-public sealed class PathToImageConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is not string path || !System.IO.File.Exists(path))
-            return null;
-        try
-        {
-            var image = new System.Windows.Media.Imaging.BitmapImage();
-            image.BeginInit();
-            image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-            image.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreImageCache;
-            image.UriSource = new Uri(path, UriKind.Absolute);
-            image.EndInit();
-            image.Freeze();
-            return image;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => Binding.DoNothing;
-}
-
 /// <summary>Bool to visibility. Pass "invert" to reverse.</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
@@ -136,7 +105,8 @@ public sealed class EntryStatusToBrushConverter : IValueConverter
             {
                 EntryDisplayStatus.Completed or EntryDisplayStatus.HasVideo => "Success",
                 EntryDisplayStatus.Processing or EntryDisplayStatus.Uploading or EntryDisplayStatus.Assigning => "Info",
-                EntryDisplayStatus.Processed or EntryDisplayStatus.Ready => "Accent",
+                EntryDisplayStatus.Processed or EntryDisplayStatus.Ready or EntryDisplayStatus.UploadDisabled
+                    or EntryDisplayStatus.ReadyForDirectUpload or EntryDisplayStatus.SelectedOnly => "Accent",
                 EntryDisplayStatus.Failed or EntryDisplayStatus.UploadFailed or EntryDisplayStatus.AssignmentFailed
                     or EntryDisplayStatus.AuthenticationFailed or EntryDisplayStatus.VideoMissing => "Danger",
                 EntryDisplayStatus.Outdated or EntryDisplayStatus.ExtractionPending or EntryDisplayStatus.Cancelled => "Warning",
@@ -174,28 +144,65 @@ public sealed class BannerKindToBrushConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-/// <summary>Connection state to the status-dot colour.</summary>
+/// <summary>Connection state to the status-dot colour; with "busy", activity state.</summary>
 public sealed class ConnectedToBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => BrushLookup.Get(value is bool connected && connected ? "Success" : "Danger");
+    {
+        var on = value is bool flag && flag;
+        // "busy": the status-bar activity dot — blue while working, green when ready.
+        if (string.Equals(parameter as string, "busy", StringComparison.OrdinalIgnoreCase))
+            return BrushLookup.Get(on ? "Info" : "Success");
+        return BrushLookup.Get(on ? "Success" : "Danger");
+    }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => Binding.DoNothing;
 }
 
-/// <summary>Colours a log line by severity so errors stand out in the console view.</summary>
-public sealed class LogLineToBrushConverter : IValueConverter
+/// <summary>Colours a log level so errors and warnings stand out.</summary>
+public sealed class LogLevelToBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        var line = value as string ?? string.Empty;
-        if (line.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
-            return BrushLookup.Get("Danger");
-        if (line.Contains("WARN", StringComparison.OrdinalIgnoreCase))
-            return BrushLookup.Get("Warning");
-        return BrushLookup.Get("Text");
-    }
+        => (value as string) switch
+        {
+            "ERROR" => BrushLookup.Get("Danger"),
+            "WARNING" => BrushLookup.Get("Warning"),
+            _ => BrushLookup.Get("Info")
+        };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+/// <summary>A zoom factor as a percentage: 1.25 → "125%".</summary>
+public sealed class ZoomToPercentConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is double zoom ? $"{zoom * 100:0}%" : "100%";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+/// <summary>Negates a bool: "percent known" becomes "indeterminate".</summary>
+public sealed class InverseBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => !(value is bool flag && flag);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => !(value is bool flag && flag);
+}
+
+/// <summary>Visible when the bound value's name equals the parameter: the Settings sections.</summary>
+public sealed class EqualsParameterToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is not null && parameter is string name &&
+           string.Equals(value.ToString(), name, StringComparison.OrdinalIgnoreCase)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => Binding.DoNothing;

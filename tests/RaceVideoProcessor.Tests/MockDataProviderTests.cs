@@ -76,8 +76,8 @@ public sealed class MockDataProviderTests
 
         var entries = await FetchAll(provider);
 
-        Assert.Contains(entries, e => LayoutTextFitter.ContainsTamil(e.PrimaryName));
-        Assert.Contains(entries, e => LayoutTextFitter.ContainsTamil(e.PrimaryLocation));
+        Assert.Contains(entries, e => e.PrimaryName.Any(c => c is >= '\u0B80' and <= '\u0BFF'));
+        Assert.Contains(entries, e => e.PrimaryLocation.Any(c => c is >= '\u0B80' and <= '\u0BFF'));
         Assert.Contains(entries, e => e.HasSecondary);
         Assert.Contains(entries, e => !e.HasSecondary);
         Assert.All(entries, e => Assert.True(e.TimingSeconds > 0));
