@@ -23,12 +23,17 @@ public sealed record FilterBuildResult(
     IReadOnlyDictionary<string, string>? RenderedText = null);
 
 /// <summary>
-/// Builds the scorecard and closing timer for FFmpeg from the design HTML
-/// (scorecard_center_number_matched_to_player_text.html).
+/// Builds the three-section digital-timer scorecard for FFmpeg, plus its
+/// final-seconds twin.
 ///
-/// Both are painted as transparent PNG plates by <see cref="ScoreboardPlateRenderer"/>
-/// with the HTML's own fonts, then overlaid: [0] video, [1] scorecard, [2] timer.
-/// The timer fades in over the video's own clock for the final seconds.
+/// The scorecard (left: primary "name, location", centre: cart number, right:
+/// secondary "name, location") and the closing plate (identical row, centre:
+/// timing text instead of the cart) are painted as transparent PNG plates by
+/// <see cref="ScoreboardPlateRenderer"/> in the Live Digital Timer visual
+/// language, then overlaid: [0] video, [1] scorecard, [2] closing plate. The
+/// scorecard shows until the final-seconds mark, then the closing plate fades
+/// in over the same row — the timer replaces the cart number in place, never
+/// in the middle of the video, and the two are never shown together.
 /// </summary>
 public sealed class FfmpegFilterBuilder
 {
@@ -65,12 +70,15 @@ public sealed class FfmpegFilterBuilder
         File.WriteAllBytes(boardPlate, board.Png);
         var boardY = ScoreboardPlateRenderer.ScorecardPlateY(w, h);
 
-        // The timer sits centred in the frame, where the closing time has always been.
-        var timer = ScoreboardPlateRenderer.RenderTimer(w, overlay.TimingText, fonts);
-        var timerPlate = Path.Combine(workDirectory, "timer-plate.png");
-        File.WriteAllBytes(timerPlate, timer.Png);
-        var timerX = (w - timer.Width) / 2;
-        var timerY = (h - timer.Height) / 2;
+        // The closing plate: the same row with the timing text in the centre
+        // panel instead of the cart number. Same height, so the same overlay
+        // origin keeps every panel edge exactly where the scorecard put it.
+        var final = ScoreboardPlateRenderer.RenderScorecard(w, h,
+            new ScoreboardContent(overlay.PrimaryName, overlay.PrimaryLocation, overlay.CardNumber,
+                overlay.SecondaryName, overlay.SecondaryLocation), fonts,
+            centerOverride: overlay.TimingText);
+        var finalPlate = Path.Combine(workDirectory, "closing-plate.png");
+        File.WriteAllBytes(finalPlate, final.Png);
 
         var start = Math.Max(0, metadata.DurationSeconds - _settings.CompletionTimeDisplaySeconds);
         var loopSeconds = Num(Math.Max(1, metadata.DurationSeconds + 1));
@@ -79,22 +87,23 @@ public sealed class FfmpegFilterBuilder
         {
             new(boardPlate, []),
             // Looped for the clip's length so it can fade in on the video's clock.
-            new(timerPlate, ["-loop", "1", "-framerate", rate, "-t", loopSeconds])
+            new(finalPlate, ["-loop", "1", "-framerate", rate, "-t", loopSeconds])
         };
 
         var graph =
-            $"[0:v][1:v]overlay=x=0:y={boardY}:eof_action=repeat[board];" +
-            $"[2:v]format=rgba,fade=t=in:st={Num(start)}:d={Num(FadeSeconds)}:alpha=1[timer];" +
-            $"[board][timer]overlay=x={timerX}:y={timerY}:eof_action=pass:enable='gte(t,{Num(start)})',format=yuv420p[vout]";
+            $"[0:v][1:v]overlay=x=0:y={boardY}:enable='lt(t,{Num(start)})':eof_action=repeat[board];" +
+            $"[2:v]format=rgba,fade=t=in:st={Num(start)}:d={Num(FadeSeconds)}:alpha=1[fin];" +
+            $"[board][fin]overlay=x=0:y={boardY}:enable='gte(t,{Num(start)})':eof_action=pass,format=yuv420p[vout]";
 
         var rendered = new Dictionary<string, string>(board.RenderedText);
-        foreach (var (key, value) in timer.RenderedText)
+        foreach (var (key, value) in final.RenderedText)
             rendered[key] = value;
+        rendered["timing"] = overlay.TimingText;
 
         var warnings = new List<string>();
         if (fontWarning is not null)
             warnings.Add(fontWarning);
-        if (board.Overflowed || timer.Overflowed)
+        if (board.Overflowed || final.Overflowed)
             warnings.Add("Some scoreboard text did not fit even at the design's minimum size.");
 
         return new FilterBuildResult(
@@ -117,7 +126,7 @@ public sealed class FfmpegFilterBuilder
     private (ScoreboardFonts Fonts, string Name, string? Warning) ResolveFonts()
     {
         if (_bundledFonts() is { } bundled)
-            return (bundled, "Orbitron 700 / Noto Sans Tamil 500", null);
+            return (bundled, "Barlow Condensed 700 / Noto Sans Tamil 500", null);
 
         var font = _fontResolver.Resolve();
         if (font.Path is null)
@@ -127,7 +136,7 @@ public sealed class FfmpegFilterBuilder
         }
 
         return (new ScoreboardFonts(font.Path, font.Path, font.Path), font.Name,
-            $"The scoreboard's design fonts (Orbitron, Noto Sans Tamil) are missing from the installation; using {font.Name} instead. Reinstall to restore them." +
+            $"The scoreboard's design fonts (Barlow Condensed, Noto Sans Tamil) are missing from the installation; using {font.Name} instead. Reinstall to restore them." +
             (font.SupportsTamil ? string.Empty : " That font has no Tamil glyphs, so Tamil will render as boxes."));
     }
 

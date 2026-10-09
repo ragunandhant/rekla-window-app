@@ -1,8 +1,9 @@
+using System.Globalization;
 using SkiaSharp;
 
 namespace RaceVideoProcessor.Infrastructure.Video;
 
-/// <summary>What the scoreboard shows. There is no secondary cart number.</summary>
+/// <summary>What the scoreboard shows: names, locations and the cart number. No labels.</summary>
 internal sealed record ScoreboardContent(string PrimaryName, string? PrimaryLocation, string CardNumber,
     string? SecondaryName, string? SecondaryLocation)
 {
@@ -10,16 +11,25 @@ internal sealed record ScoreboardContent(string PrimaryName, string? PrimaryLoca
 }
 
 /// <summary>
-/// The typefaces the design HTML loads: player text uses
-/// <c>'Noto Sans Tamil', 'Orbitron'</c> (Google serves Noto Sans Tamil as separate
-/// Tamil and Latin subsets), the card number uses <c>'Orbitron'</c>.
+/// The typefaces for the scoreboard. Barlow Condensed Bold is the primary
+/// face for Latin text and digits; the Noto Sans Tamil subsets are fallback
+/// only, used cluster-by-cluster for code points the display face does not
+/// contain (Tamil script). Latin text and digits always render in the display face.
 /// </summary>
-public sealed record ScoreboardFonts(string TamilText, string LatinText, string Orbitron)
+public sealed record ScoreboardFonts(string TamilText, string LatinText, string Display)
 {
     public const string Folder = "Fonts/Scoreboard";
 
-    internal string[] PlayerStack => [TamilText, LatinText, Orbitron];
-    internal string[] NumberStack => [Orbitron, LatinText];
+    internal string[] PlayerStack => [TamilText, LatinText, Display];
+    internal string[] NumberStack => [Display, LatinText];
+
+    /// <summary>
+    /// Display face first, Tamil subset as script fallback.
+    /// <see cref="ShapedTextRenderer"/> gives each grapheme cluster to the first
+    /// font containing all of its glyphs, so Tamil shapes in Noto Sans Tamil
+    /// while everything else stays in the display face.
+    /// </summary>
+    internal string[] DigitalStack => [Display, LatinText, TamilText];
 
     /// <summary>The bundled fonts next to the application, or null when any is missing.</summary>
     public static ScoreboardFonts? Bundled(string? baseDirectory = null)
@@ -28,8 +38,8 @@ public sealed record ScoreboardFonts(string TamilText, string LatinText, string 
         var fonts = new ScoreboardFonts(
             Path.Combine(folder, "NotoSansTamil-Medium.tamil.ttf"),
             Path.Combine(folder, "NotoSansTamil-Medium.latin.ttf"),
-            Path.Combine(folder, "Orbitron-Bold.ttf"));
-        return File.Exists(fonts.TamilText) && File.Exists(fonts.LatinText) && File.Exists(fonts.Orbitron) ? fonts : null;
+            Path.Combine(folder, "BarlowCondensed-Bold.ttf"));
+        return File.Exists(fonts.TamilText) && File.Exists(fonts.LatinText) && File.Exists(fonts.Display) ? fonts : null;
     }
 }
 
@@ -40,25 +50,30 @@ internal sealed record PlateResult(byte[] Png, int Width, int Height, double Box
     IReadOnlyDictionary<string, string> RenderedText);
 
 /// <summary>
-/// Paints the scoreboard from scorecard_center_number_matched_to_player_text.html
-/// as transparent plates that FFmpeg overlays on the video.
+/// Paints the three-section digital-timer scoreboard as transparent plates that
+/// FFmpeg overlays on the video: LEFT rectangle (primary "name, location"),
+/// CENTRE panel (cart number only — or the final-seconds timing text),
+/// RIGHT rectangle (secondary "name, location") — no labels anywhere. Each
+/// side is one single line in one size, one weight and one treatment, centred
+/// horizontally and vertically, the comma separating name from location.
 ///
-/// Every number here is a CSS value from that file, in CSS pixels, for a 1920-px
-/// wide canvas (the desktop rules; the 900 px and 500 px media queries never apply
-/// to a video frame). The canvas is scaled by videoWidth / 1920, so a 1080p video
-/// matches a browser rendering the page at 1920×1080 exactly, and 720p and 4K are
-/// the same layout at device-pixel ratios 0.667 and 2.
+/// The visual language is the Live Digital Timer HTML, applied to every box:
+/// <c>linear-gradient(135deg, #0b150d, #040805)</c>, <c>1.5px solid #14421b</c>
+/// border, <c>6px</c> radius, <c>0 4px 15px rgba(0,0,0,.6)</c> outer shadow with
+/// an <c>inset 0 1px 2px rgba(57,255,20,.1)</c> highlight, Barlow Condensed 700
+/// <c>#39ff14</c> text with a <c>0 0 8px rgba(57,255,20,.4)</c> glow. Side text
+/// is the pure display cut (no synthetic emboldening);
+/// centre content is always shaped
+/// at one fixed size and its panel widens around longer content instead of
+/// shrinking. Over-long side text shrinks, then truncates with a clean
+/// ellipsis, never leaving its box.
 ///
-///   .scorecard   width 95 %, bottom 4 %, centred; three boxes, 18 px gaps
-///   .player-box  78 px tall, padding 0 18 px, gradient 135deg #0b150d → #040805,
-///                1.5 px #14421b border, 6 px radius,
-///                shadow 0 4px 15px rgba(0,0,0,.6), inset 0 1px 2px rgba(57,255,20,.1)
-///   .player-text Noto Sans Tamil 500, 20 px, #a3e635, line-height 1.35,
-///                padding 5 px 0 7 px, one line "name, location", shrinks 0.5 px to 6 px
-///   .card-box    78 × 78, same surface
-///   .card-number Orbitron 700, 34 px, #39ff14, letter-spacing .5 px, line-height 1,
-///                text-shadow 0 0 8px rgba(57,255,20,.4); the page's fitting script
-///                always ends at its 12 px minimum (see PaintNumberBox)
+/// Every number here is proportional to that HTML, in CSS pixels, for a
+/// 1920-px wide canvas. The canvas is scaled by videoWidth / 1920, so a 1080p
+/// video matches the proportions exactly, and 720p and 4K are the same layout
+/// at device-pixel ratios 0.667 and 2.
+///
+/// A missing secondary player leaves its rectangle empty.
 ///
 /// Rendered with Skia, which is also Chrome's rasteriser.
 /// </summary>
@@ -66,20 +81,29 @@ internal static class ScoreboardPlateRenderer
 {
     public const double CssCanvasWidth = 1920;
 
-    private const float BoxHeight = 78;
-    private const float Gap = 18;
-    private const float PlayerPadding = 18;
+    private const float BoxHeight = 88;
+    private const float Gap = 12;
+    private const float PaddingH = 18;
     private const float Border = 1.5f;
     private const float Radius = 6;
     private const float ScorecardWidthShare = 0.95f;
-    private const float PlayerFontSize = 20;
-    private const float PlayerMinFontSize = 6;
-    private const float PlayerLineHeight = 1.35f;
-    private const float PlayerPaddingTop = 5;
-    private const float PlayerPaddingBottom = 7;
-    private const float CardFontSize = 34;
-    private const float CardMinFontSize = 12;
-    private const float CardLetterSpacing = 0.5f;
+
+    private const float NameSize = 28;
+    private const float NameMinSize = 13;
+
+    /// <summary>
+    /// The cart/timer centre text is always shaped at this size — never shrunk
+    /// to fit. Longer content widens the centre panel instead (see Layout).
+    /// </summary>
+    private const float CenterFixedSize = 32;
+    private const float CenterPadding = 6;
+
+    /// <summary>
+    /// The HTML's <c>letter-spacing: 0.5px</c> at its 20 px size, as a ratio,
+    /// so spacing stays proportional at video type sizes (28 px sides → 0.7).
+    /// </summary>
+    private const float LetterSpacingEm = 0.025f;
+    private const float CartLetterSpacing = 0f;
 
     /// <summary>Room around the boxes for "0 4px 15px" shadows, in CSS px.</summary>
     private const float ShadowMargin = 24;
@@ -87,13 +111,12 @@ internal static class ScoreboardPlateRenderer
     private static readonly SKColor GradientStart = SKColor.Parse("#0b150d");
     private static readonly SKColor GradientEnd = SKColor.Parse("#040805");
     private static readonly SKColor BorderColor = SKColor.Parse("#14421b");
-    private static readonly SKColor PlayerTextColor = SKColor.Parse("#a3e635");
-    private static readonly SKColor CardTextColor = SKColor.Parse("#39ff14");
-    private static readonly SKColor CardGlow = new(57, 255, 20, (byte)Math.Round(0.4 * 255));
+    private static readonly SKColor MainTextColor = SKColor.Parse("#39ff14");
+    private static readonly SKColor TextGlow = new(57, 255, 20, (byte)Math.Round(0.4 * 255));
     private static readonly SKColor OuterShadow = new(0, 0, 0, (byte)Math.Round(0.6 * 255));
     private static readonly SKColor InsetShadow = new(57, 255, 20, (byte)Math.Round(0.1 * 255));
 
-    /// <summary>The joined one-line text of a player box, as the HTML shows it: "name, location".</summary>
+    /// <summary>The joined one-line text of a side rectangle: "name, location".</summary>
     public static string PlayerLine(string? name, string? location)
     {
         name = name?.Trim() ?? string.Empty;
@@ -106,8 +129,12 @@ internal static class ScoreboardPlateRenderer
     /// <summary>
     /// The full-width scorecard strip for a <paramref name="videoWidth"/> × <paramref name="videoHeight"/> frame.
     /// The plate spans the frame's width; overlay it at x = 0, y = <see cref="ScorecardPlateY"/>.
+    /// When <paramref name="centerOverride"/> is given, the centre panel shows
+    /// it instead of the cart number (the final-seconds timer), laid out by the
+    /// same geometry so the panel simply widens around it.
     /// </summary>
-    public static PlateResult RenderScorecard(int videoWidth, int videoHeight, ScoreboardContent content, ScoreboardFonts fonts)
+    public static PlateResult RenderScorecard(int videoWidth, int videoHeight, ScoreboardContent content,
+        ScoreboardFonts fonts, string? centerOverride = null)
     {
         var s = (float)(videoWidth / CssCanvasWidth);
         var cssHeight = BoxHeight + ShadowMargin * 2;
@@ -118,36 +145,79 @@ internal static class ScoreboardPlateRenderer
         canvas.Clear(SKColors.Transparent);
         canvas.Scale(s);
 
-        var cardWidthCss = (float)(CssCanvasWidth * ScorecardWidthShare);
-        var left = (float)(CssCanvasWidth - cardWidthCss) / 2;
-        var playerWidth = (cardWidthCss - Gap * 2 - BoxHeight) / 2;
-        var top = ShadowMargin;
-
-        var leftBox = SKRect.Create(left, top, playerWidth, BoxHeight);
-        var cardBox = SKRect.Create(leftBox.Right + Gap, top, BoxHeight, BoxHeight);
-        var rightBox = SKRect.Create(cardBox.Right + Gap, top, playerWidth, BoxHeight);
+        using var text = new ShapedTextRenderer(fonts.DigitalStack);
+        var centerText = (centerOverride ?? content.CardNumber).Trim();
+        var (leftBox, centerBox, rightBox) = Layout(text, centerText);
 
         var rendered = new Dictionary<string, string>();
         var overflowed = false;
 
-        using (var player = new ShapedTextRenderer(fonts.PlayerStack))
         {
-            var primary = PlayerLine(content.PrimaryName, content.PrimaryLocation);
-            var secondary = content.HasSecondary ? PlayerLine(content.SecondaryName, content.SecondaryLocation) : "—";
-            overflowed |= PaintPlayerBox(canvas, leftBox, primary, player);
-            overflowed |= PaintPlayerBox(canvas, rightBox, secondary, player);
-            rendered["primary"] = primary;
-            rendered["secondary"] = secondary;
+            var line = PlayerLine(content.PrimaryName, content.PrimaryLocation);
+            var (drawn, clipped) = PaintSideBox(canvas, leftBox, line, text);
+            overflowed |= clipped;
+            rendered["primary"] = drawn.Text;
+            rendered["primaryLocation"] = (content.PrimaryLocation ?? string.Empty).Trim();
         }
 
-        using (var number = new ShapedTextRenderer(fonts.NumberStack))
         {
-            var card = content.CardNumber.Trim();
-            overflowed |= PaintNumberBox(canvas, cardBox, card, number, CardFontSize, CardMinFontSize);
-            rendered["card"] = card;
+            var (drawn, clipped) = PaintCenterBox(canvas, centerBox, centerText, text);
+            overflowed |= clipped;
+            rendered["card"] = content.CardNumber.Trim();
+            rendered["center"] = drawn.Text;
         }
 
-        return new PlateResult(Encode(bitmap), videoWidth, plateHeight, top * s, overflowed, rendered);
+        {
+            var hasSecondary = content.HasSecondary;
+            var line = hasSecondary ? PlayerLine(content.SecondaryName, content.SecondaryLocation) : string.Empty;
+            string drawnText;
+            if (hasSecondary)
+            {
+                var (drawn, clipped) = PaintSideBox(canvas, rightBox, line, text);
+                overflowed |= clipped;
+                drawnText = drawn.Text;
+            }
+            else
+            {
+                PaintSurface(canvas, rightBox);
+                drawnText = "—";
+            }
+            rendered["secondary"] = drawnText;
+            rendered["secondaryLocation"] = hasSecondary ? (content.SecondaryLocation ?? string.Empty).Trim() ?? string.Empty : string.Empty;
+        }
+
+        return new PlateResult(Encode(bitmap), videoWidth, plateHeight, ShadowMargin * s, overflowed, rendered);
+    }
+
+    /// <summary>
+    /// The row geometry for centre content measured at the fixed size: the
+    /// centre panel is at least square and widens around longer content, the
+    /// side rectangles split the remainder symmetrically so the row stays
+    /// balanced about the frame middle. Only pathological content (sides below
+    /// <see cref="MinSideWidth"/>) widens the row itself.
+    /// </summary>
+    private const float MinSideWidth = 120;
+
+    private static (SKRect Left, SKRect Center, SKRect Right) Layout(ShapedTextRenderer text, string centerText)
+    {
+        var rowWidth = (float)(CssCanvasWidth * ScorecardWidthShare);
+        var centerMeasured = text.Shape(centerText, CenterFixedSize, CartLetterSpacing).Width;
+        var centerW = Math.Max(BoxHeight, centerMeasured + CenterPadding * 2);
+        var sideW = (rowWidth - centerW - Gap * 2) / 2;
+
+        var left = (float)(CssCanvasWidth - rowWidth) / 2;
+        if (sideW < MinSideWidth)
+        {
+            sideW = MinSideWidth;
+            rowWidth = centerW + sideW * 2 + Gap * 2;
+            left = (float)(CssCanvasWidth - rowWidth) / 2;
+        }
+
+        var top = ShadowMargin;
+        var leftBox = SKRect.Create(left, top, sideW, BoxHeight);
+        var centerBox = SKRect.Create(leftBox.Right + Gap, top, centerW, BoxHeight);
+        var rightBox = SKRect.Create(centerBox.Right + Gap, top, sideW, BoxHeight);
+        return (leftBox, centerBox, rightBox);
     }
 
     /// <summary>Top of the scorecard plate in the frame: the boxes end 4 % above the bottom.</summary>
@@ -158,39 +228,110 @@ internal static class ScoreboardPlateRenderer
         return (int)Math.Round(boxBottom - (BoxHeight + ShadowMargin) * s);
     }
 
+    // ---- Boxes -----------------------------------------------------------------
+
     /// <summary>
-    /// The closing timer. The HTML has no timer, so it is the HTML's own card box
-    /// widened to its content — same surface, border, radius, shadows, Orbitron
-    /// 700 34 px #39ff14 with the same glow — so it reads as part of the scorecard.
+    /// One side rectangle: "Name, Location" on one single line, one size, one
+    /// weight, one treatment — centred horizontally and vertically, no labels.
+    /// Pure display-face 700 (no synthetic emboldening).
+    /// The text shrinks to <see cref="NameMinSize"/>, then truncates cleanly.
     /// </summary>
-    public static PlateResult RenderTimer(int videoWidth, string timingText, ScoreboardFonts fonts)
+    /// <returns>The drawn line and whether even the ellipsis did not fit.</returns>
+    private static (ShapedTextRenderer.Line Line, bool Clipped) PaintSideBox(SKCanvas canvas, SKRect box,
+        string line, ShapedTextRenderer text)
     {
-        var s = (float)(videoWidth / CssCanvasWidth);
-        using var number = new ShapedTextRenderer(fonts.NumberStack);
-        var text = timingText.Trim();
-        var measured = number.Shape(text, CardFontSize, CardLetterSpacing);
-        var boxWidth = Math.Max(BoxHeight, measured.Width + PlayerPadding * 2 + Border * 2);
+        PaintSurface(canvas, box);
 
-        var cssWidth = boxWidth + ShadowMargin * 2;
-        var cssHeight = BoxHeight + ShadowMargin * 2;
-        var width = (int)Math.Ceiling(cssWidth * s);
-        var height = (int)Math.Ceiling(cssHeight * s);
+        var innerWidth = box.Width - PaddingH * 2;
+        var drawn = FitSingleLine(text, line, innerWidth, NameSize, NameMinSize, NameSize * LetterSpacingEm);
 
-        using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-        using var canvas = new SKCanvas(bitmap);
-        canvas.Clear(SKColors.Transparent);
-        canvas.Scale(s);
+        var x = box.Left + (box.Width - drawn.Width) / 2;
+        // line-height: 1, centred vertically.
+        var baseline = box.Top + (box.Height - drawn.Size) / 2 +
+                       (drawn.Size - (drawn.Ascent + drawn.Descent)) / 2 + drawn.Ascent;
 
-        var box = SKRect.Create(ShadowMargin, ShadowMargin, boxWidth, BoxHeight);
-        var overflowed = PaintNumberBox(canvas, box, text, number, CardFontSize, CardMinFontSize, padding: PlayerPadding, browserFit: false);
-        return new PlateResult(Encode(bitmap), width, height, ShadowMargin * s, overflowed,
-            new Dictionary<string, string> { ["timing"] = text });
+        canvas.Save();
+        canvas.ClipRect(box, antialias: true);
+        // text-shadow: 0 0 8px rgba(57,255,20,.4) — blur 8 is sigma 4.
+        text.Draw(canvas, drawn, x, baseline, MainTextColor, TextGlow, 4f);
+        canvas.Restore();
+
+        return (drawn, drawn.Overflows);
     }
 
-    // ---- Box surface ---------------------------------------------------------
+    /// <summary>
+    /// Centre panel: its content (cart number, or the final-seconds timer)
+    /// shaped once at <see cref="CenterFixedSize"/> — never shrunk, never
+    /// compressed — centred on both axes. The panel was sized around it.
+    /// </summary>
+    private static (ShapedTextRenderer.Line Line, bool Clipped) PaintCenterBox(SKCanvas canvas, SKRect box,
+        string content, ShapedTextRenderer text)
+    {
+        PaintSurface(canvas, box, focal: true);
 
-    /// <summary>background, box-shadow (outer and inset), border and radius shared by every box.</summary>
-    private static void PaintSurface(SKCanvas canvas, SKRect box)
+        var line = text.Shape(content, CenterFixedSize, CartLetterSpacing);
+        var innerWidth = box.Width - CenterPadding * 2;
+        line.Overflows = line.Width > innerWidth;
+
+        // line-height: 1, centred.
+        var baseline = box.Top + (box.Height - line.Size) / 2 +
+                       (line.Size - (line.Ascent + line.Descent)) / 2 + line.Ascent;
+        var x = box.Left + (box.Width - line.Width) / 2;
+
+        canvas.Save();
+        canvas.ClipRect(box, antialias: true);
+        // text-shadow: 0 0 8px rgba(57,255,20,.4) — blur 8 is sigma 4.
+        text.Draw(canvas, line, x, baseline, MainTextColor, TextGlow, 4f);
+        canvas.Restore();
+
+        return (line, line.Overflows);
+    }
+
+    /// <summary>
+    /// The HTML's single-line behaviour: shrink from <paramref name="maxSize"/>
+    /// to <paramref name="minSize"/>, then truncate grapheme-safely with "…"
+    /// so text never overflows, overlaps its neighbour or breaks the geometry.
+    /// </summary>
+    private static ShapedTextRenderer.Line FitSingleLine(ShapedTextRenderer text, string content,
+        float maxWidth, float maxSize, float minSize, float letterSpacing)
+    {
+        var line = text.Fit(content, maxWidth, maxSize, minSize, letterSpacing);
+        if (!line.Overflows)
+            return line;
+
+        var elements = new List<string>();
+        var enumerator = StringInfo.GetTextElementEnumerator(content);
+        while (enumerator.MoveNext())
+            elements.Add((string)enumerator.Current);
+
+        for (var n = elements.Count - 1; n >= 0; n--)
+        {
+            var candidate = string.Concat(elements.Take(n)) + "…";
+            var shaped = text.Shape(candidate, minSize, letterSpacing);
+            if (shaped.Width <= maxWidth)
+                return shaped;
+        }
+
+        var dot = text.Shape("…", minSize, letterSpacing);
+        dot.Overflows = dot.Width > maxWidth;
+        return dot;
+    }
+
+    // ---- Container surface (the HTML's .digital-timer-container) ----------------
+
+    /// <summary>
+    /// background 135deg gradient, 1.5px #14421b border, 6px radius,
+    /// 0 4px 15px black outer shadow, inset 0 1px 2px green highlight —
+    /// plus two restrained premium touches in the same green language: a crisp
+    /// 1 px glass edge-light just inside the top border, and (for the focal
+    /// cart square and timer plaque) a soft green wash falling from the top.
+    /// (No coloured outer aura: blurred translucent colour leaves
+    /// unpremultiplied-fringe artefacts on the transparent plate.)
+    /// </summary>
+    private static readonly SKColor EdgeLight = new(190, 255, 170, 30);
+    private static readonly SKColor FocalWash = new(57, 255, 20, 16);
+
+    private static void PaintSurface(SKCanvas canvas, SKRect box, bool focal = false)
     {
         var outer = new SKRoundRect(box, Radius);
 
@@ -227,6 +368,23 @@ internal static class ScoreboardPlateRenderer
             canvas.DrawRoundRect(outer, background);
         }
 
+        if (focal)
+        {
+            // Soft green wash from the top edge: marks the cart square as the focus.
+            using var wash = new SKPaint
+            {
+                IsAntialias = true,
+                Shader = SKShader.CreateLinearGradient(
+                    new SKPoint(box.MidX, box.Top),
+                    new SKPoint(box.MidX, box.Top + box.Height * 0.55f),
+                    [FocalWash, SKColors.Transparent], [0f, 1f], SKShaderTileMode.Clamp)
+            };
+            canvas.Save();
+            canvas.ClipRoundRect(outer, antialias: true);
+            canvas.DrawRect(box, wash);
+            canvas.Restore();
+        }
+
         // box-shadow: inset 0 1px 2px rgba(57,255,20,.1), inside the padding box.
         var padding = new SKRoundRect(SKRect.Inflate(box, -Border, -Border), Radius - Border);
         using (var inset = new SKPaint
@@ -255,86 +413,13 @@ internal static class ScoreboardPlateRenderer
             Color = BorderColor
         };
         canvas.DrawRoundRect(new SKRoundRect(SKRect.Inflate(box, -Border / 2, -Border / 2), Radius - Border / 2), stroke);
-    }
 
-    // ---- Content -------------------------------------------------------------
-
-    /// <summary>
-    /// .player-text, laid out as Chrome lays it out (measured against the HTML at
-    /// 1920×1080): fitSingleLine() shrinks while scrollWidth &gt; clientWidth − 2 of
-    /// the box, i.e. while the text is wider than the box's inner width − 2 (851 px),
-    /// so text may grow into the 18 px padding. Text that fits the 816 px element is
-    /// centred; wider text starts at the element's left edge and is clipped at its
-    /// right edge (overflow: hidden), exactly as the browser shows it.
-    /// </summary>
-    /// <returns>True when part of the text is clipped.</returns>
-    private static bool PaintPlayerBox(SKCanvas canvas, SKRect box, string text, ShapedTextRenderer renderer)
-    {
-        PaintSurface(canvas, box);
-
-        var inner = box.Width - Border * 2;
-        var elementWidth = inner - PlayerPadding * 2;
-        var line = renderer.Fit(text, inner - 2, PlayerFontSize, PlayerMinFontSize);
-
-        // align-items: center on a block of line-height 1.35 plus 5 px / 7 px padding.
-        var lineHeight = line.Size * PlayerLineHeight;
-        var blockHeight = lineHeight + PlayerPaddingTop + PlayerPaddingBottom;
-        var blockTop = box.Top + Border + (box.Height - Border * 2 - blockHeight) / 2;
-        var baseline = blockTop + PlayerPaddingTop + (lineHeight - (line.Ascent + line.Descent)) / 2 + line.Ascent;
-        var elementLeft = box.Left + Border + PlayerPadding;
-        var x = line.Width <= elementWidth ? elementLeft + (elementWidth - line.Width) / 2 : elementLeft;
-
-        canvas.Save();
-        canvas.ClipRect(SKRect.Create(elementLeft, blockTop, elementWidth, blockHeight), antialias: true);
-        renderer.Draw(canvas, line, x, baseline, PlayerTextColor);
-        canvas.Restore();
-        return line.Width > elementWidth;
-    }
-
-    /// <summary>
-    /// .card-number, laid out as Chrome lays it out. The element is width: 100 % of
-    /// the 75 px box interior, so its scrollWidth is never below 75 and the HTML's
-    /// fitSingleLine() test (scrollWidth &gt; clientWidth − 2 = 73) is always true: the
-    /// browser always shows the number at the 12 px minimum. That is reproduced here
-    /// deliberately (<paramref name="browserFit"/>), because the HTML is the
-    /// specification. The closing timer, which the HTML does not define, fits to its
-    /// content instead.
-    /// </summary>
-    private static bool PaintNumberBox(SKCanvas canvas, SKRect box, string text, ShapedTextRenderer renderer,
-        float maxSize, float minSize, float padding = 0, bool browserFit = true)
-    {
-        PaintSurface(canvas, box);
-
-        var inner = box.Width - Border * 2;
-        var elementWidth = inner - padding * 2;
-        ShapedTextRenderer.Line line;
-        if (browserFit)
-        {
-            var size = maxSize;
-            line = renderer.Shape(text, size, CardLetterSpacing);
-            while (Math.Max(elementWidth, line.Width) > inner - 2 && size > minSize)
-            {
-                size -= 0.5f;
-                line = renderer.Shape(text, size, CardLetterSpacing);
-            }
-        }
-        else
-        {
-            line = renderer.Fit(text, elementWidth, maxSize, minSize, CardLetterSpacing);
-        }
-
-        // line-height: 1, centred.
-        var blockTop = box.Top + Border + (box.Height - Border * 2 - line.Size) / 2;
-        var baseline = blockTop + (line.Size - (line.Ascent + line.Descent)) / 2 + line.Ascent;
-        var elementLeft = box.Left + Border + padding;
-        var x = line.Width <= elementWidth ? elementLeft + (elementWidth - line.Width) / 2 : elementLeft;
-
+        // Glass edge-light: a crisp 1 px highlight just inside the top border.
+        using var edge = new SKPaint { IsAntialias = false, Color = EdgeLight };
         canvas.Save();
         canvas.ClipRoundRect(new SKRoundRect(SKRect.Inflate(box, -Border, -Border), Radius - Border), antialias: true);
-        // text-shadow: 0 0 8px rgba(57,255,20,.4) — blur 8 is sigma 4.
-        renderer.Draw(canvas, line, x, baseline, CardTextColor, CardGlow, 4f);
+        canvas.DrawRect(SKRect.Create(box.Left, box.Top + Border, box.Width, 1), edge);
         canvas.Restore();
-        return line.Width > elementWidth;
     }
 
     private static byte[] Encode(SKBitmap bitmap)

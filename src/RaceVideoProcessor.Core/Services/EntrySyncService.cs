@@ -5,13 +5,13 @@ namespace RaceVideoProcessor.Core.Services;
 
 public sealed class EntrySyncService
 {
-    private readonly IEntryProviderRouter _router;
+    private readonly IEntryDataProvider _provider;
     private readonly ILocalStateRepository _repository;
     private readonly IAppLog _log;
 
-    public EntrySyncService(IEntryProviderRouter router, ILocalStateRepository repository, IAppLog log)
+    public EntrySyncService(IEntryDataProvider provider, ILocalStateRepository repository, IAppLog log)
     {
-        _router = router;
+        _provider = provider;
         _repository = repository;
         _log = log;
     }
@@ -23,7 +23,7 @@ public sealed class EntrySyncService
     /// </summary>
     public async Task<SyncSnapshot> SynchronizeAsync(RaceScope scope, CancellationToken cancellationToken)
     {
-        var provider = _router.Current;
+        var provider = _provider;
         var fetched = await provider.FetchEntriesAsync(scope, cancellationToken).ConfigureAwait(false);
 
         // Stable EntryId is the duplicate-protection boundary. If an API returns the

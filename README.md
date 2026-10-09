@@ -35,7 +35,7 @@ Two independent header switches, **Processing** and **Upload**, decide what sele
 
 ## Scoreboard
 
-The video scoreboard reproduces `scorecard_center_number_matched_to_player_text.html`: three boxes (primary "name, location" left, cart number centre, secondary right), with the page's own fonts — Orbitron 700 and Noto Sans Tamil 500, bundled under `Fonts/Scoreboard` (OFL). Plates are painted with Skia and HarfBuzz from the page's CSS values at a 1920-px-wide canvas scaled to the video width, then overlaid by FFmpeg. Text sizes follow the page's `fitSingleLine()` exactly as Chrome runs it. The closing timer (final 4 s) is the page's card box widened to its content.
+The video scoreboard is a three-section digital-timer plate styled after the Live Digital Timer HTML: LEFT rectangle (primary "name, location", centred), CENTER panel (cart number at one fixed size — the panel widens for longer carts instead of shrinking the text), RIGHT rectangle (secondary "name, location", centred) — no labels anywhere, one line, one size, one weight, one treatment throughout, in Barlow Condensed 700. During the final four seconds an identical row fades in with the timing text replacing the cart number in the same centre panel. Every box uses a 135deg `#0b150d → #040805` gradient, `1.5px solid #14421b` border, 6px radius, `0 4px 15px rgba(0,0,0,.6)` outer shadow plus `inset 0 1px 2px rgba(57,255,20,.1)`, `#39ff14` text with a `0 0 8px rgba(57,255,20,.4)` glow. Plates are painted with Skia and HarfBuzz on a 1920-px-wide canvas scaled to the video width, then overlaid by FFmpeg. Barlow Condensed lacks Tamil glyphs, so each Tamil cluster falls back to the bundled Noto Sans Tamil while Latin/digits stay in Barlow Condensed. Over-long side text shrinks, then truncates with a clean ellipsis; a missing secondary leaves its rectangle empty.
 
 ## What is implemented
 
@@ -47,10 +47,7 @@ The video scoreboard reproduces `scorecard_center_number_matched_to_player_text.
 - Standard Windows window: minimise, maximise/restore, close, resize, snap, and remembered size and position.
 - A render belongs to the entry it started on, so navigating away mid-render is safe; `CANCEL RENDER` stops it without touching the source video.
 - Every unavailable action states the reason next to the button.
-- Async background polling at 10 / 20 / 30 / 60 seconds.
-- Fully functional Demo Mode: 100 deterministic entries with realistic card numbers and Tamil names, released one at a time.
-- Dedicated configurable Demo Video Folder; the same sample clips can be explicitly mapped to many different demo entries.
-- `Simulate Next Entry` for immediate workflow testing.
+- Async background polling of the real backend at 10 / 20 / 30 / 60 seconds.
 - Real API adapter mapping the supplied payload (`player`, `secondaryPlayer`, `timings`, `status`, `raceId[].types`, `marker`), tolerant of nulls and missing fields.
 - Explicit Windows video file selection (`mp4`, `mkv`, `mov`, `avi`, `m4v`, `ts`, `mts`, `m2ts`).
 - SQLite persistence for local mapping, status, output, errors, settings and sync metadata.
@@ -98,36 +95,23 @@ The application additionally checks for bundled tools at:
 <application folder>\tools\ffmpeg\ffprobe.exe
 ```
 
-## First end-to-end demo
+## First end-to-end run
 
-1. Launch the app. Demo Mode is the default.
-2. Entry 001 appears.
+1. Launch the app and configure the backend login and race on the Settings and Races pages.
+2. Entries arrive from the real API.
 3. Select an actual local video.
 4. Click **PREVIEW** to render representative overlay frames with FFmpeg.
 5. Click **START PROCESSING**.
 6. Watch actual FFmpeg progress.
 7. After FFmpeg exits, FFprobe validates the temporary output.
 8. The valid file is moved to the configured `Processed` folder with the original filename.
-9. Click **SIMULATE NEXT ENTRY**.
-10. Entry 002 appears; map and process it independently.
+9. New API entries are picked up automatically; map and process each independently.
 
-Demo videos may be reused across entries. The mapping remains explicit per EntryId.
+Videos may be reused across entries. The mapping remains explicit per EntryId.
 
-## Real API integration
+## Backend configuration
 
-Do not modify the UI, polling logic or processing service. Implement:
-
-```text
-IRealApiPayloadAdapter
-```
-
-in `RaceVideoProcessor.Infrastructure/Providers` using the actual documented JSON contract, then replace this registration in `App.xaml.cs`:
-
-```csharp
-services.AddSingleton<IRealApiPayloadAdapter, UnconfiguredRealApiPayloadAdapter>();
-```
-
-with your real adapter.
+Point the Settings page at the real backend: login URL, players URLs, assign (PATCH) URLs and the media upload URL. The `RaceApiPayloadAdapter` in `RaceVideoProcessor.Infrastructure/Providers` maps the documented JSON contract; extend it there if the contract gains fields.
 
 ## Tests
 
@@ -135,7 +119,7 @@ with your real adapter.
 dotnet test .\RaceVideoProcessor.sln -c Release
 ```
 
-The tests cover mock arrival, duplicate IDs, data changes/outdated outputs, HTTP success/failure/timeout, SQLite restart persistence, long-name fitting, common resolutions, output validation and missing-video failure.
+The tests cover duplicate IDs, data changes/outdated outputs, HTTP success/failure/timeout, SQLite restart persistence, long-name fitting, common resolutions, output validation and missing-video failure.
 
 An opt-in integration test performs real FFmpeg processing:
 
@@ -163,7 +147,7 @@ By default the app stores:
 %LOCALAPPDATA%\RaceVideoProcessor\race-video-processor.log
 ```
 
-The API/mock provider remains the race-data source. SQLite stores local processing state and history.
+The real API provider is the race-data source. SQLite stores local processing state and history.
 
 ## One-click Windows installer build
 

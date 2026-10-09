@@ -12,8 +12,8 @@ namespace RaceVideoProcessor.Infrastructure.Video;
 /// the first letter, so Latin initials ("KS சிவராம்குமார்") made it shape the Tamil
 /// as Latin and the vowel signs broke. Here every grapheme cluster is given to the
 /// first font in the list that has all of its glyphs — exactly how a browser applies
-/// <c>font-family: 'Noto Sans Tamil', 'Orbitron'</c> with Google Fonts' per-script
-/// subsets — and each run is shaped by HarfBuzz as the script it is.
+/// a <c>font-family</c> fallback list with Google Fonts' per-script subsets —
+/// and each run is shaped by HarfBuzz as the script it is.
 /// </summary>
 internal sealed class ShapedTextRenderer : IDisposable
 {

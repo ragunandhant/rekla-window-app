@@ -309,10 +309,6 @@
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button Content="Open output" Command="{Binding OpenOutputCommand}" Style="{StaticResource Btn.Link}" />
                             <Button Content="Output folder" Command="{Binding OpenOutputFolderCommand}" Style="{StaticResource Btn.Link}" />
-                            <Button Content="Release next demo card" Command="{Binding SimulateNextEntryCommand}" Style="{StaticResource Btn.Link}"
-                                    Visibility="{Binding IsDemoMode, Converter={StaticResource BoolToVisibility}}" />
-                            <Button Content="Reset demo" Command="{Binding ResetDemoCommand}" Style="{StaticResource Btn.Link}"
-                                    Visibility="{Binding IsDemoMode, Converter={StaticResource BoolToVisibility}}" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

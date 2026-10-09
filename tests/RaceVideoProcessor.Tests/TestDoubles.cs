@@ -113,11 +113,6 @@ internal sealed class StaticProvider : IEntryDataProvider
     }
 }
 
-internal sealed class StaticRouter(IEntryDataProvider provider) : IEntryProviderRouter
-{
-    public IEntryDataProvider Current => provider;
-}
-
 internal sealed class StaticAdapter(IReadOnlyList<RaceEntry> entries) : IRealApiPayloadAdapter
 {
     public IReadOnlyList<RaceEntry> Parse(string payload) => entries;

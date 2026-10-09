@@ -167,14 +167,6 @@
 
                             <Grid Style="{StaticResource Row}">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="Data source" Style="{StaticResource FormLabel}" />
-                                <StackPanel Grid.Column="1">
-                                    <ComboBox ItemsSource="{Binding DataSourceModes}" SelectedItem="{Binding Settings.DataSourceMode}" Width="260" HorizontalAlignment="Left" />
-                                    <TextBlock Text="RealApi uses the backend below. Demo simulates entries, upload and assignment without any network." Style="{StaticResource FormHelp}" />
-                                </StackPanel>
-                            </Grid>
-                            <Grid Style="{StaticResource Row}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <TextBlock Text="Login URL" Style="{StaticResource FormLabel}" />
                                 <TextBox Grid.Column="1" Text="{Binding Settings.LoginUrl, UpdateSourceTrigger=PropertyChanged}" />
                             </Grid>
@@ -237,17 +229,6 @@
                                     <TextBlock Text="Seconds between checks. New entries join the list in date order without disturbing your work." Style="{StaticResource FormHelp}" />
                                 </StackPanel>
                             </Grid>
-                            <Grid Style="{StaticResource Row}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="Demo entries" Style="{StaticResource FormLabel}" />
-                                <StackPanel Grid.Column="1">
-                                    <CheckBox IsChecked="{Binding Settings.DemoAutoAdvance}" Content="Release the next demo card automatically" />
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <TextBox Text="{Binding Settings.DemoEntryIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" Width="80" />
-                                        <TextBlock Text="seconds between demo cards" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" Margin="8,0,0,0" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Grid>
                         </StackPanel>
 
                         <!-- ===== SYSTEM ===== -->
@@ -279,12 +260,6 @@
                                 <TextBlock Text="Processed video folder" Style="{StaticResource FormLabel}" />
                                 <TextBox Grid.Column="1" Text="{Binding Settings.OutputVideoFolder, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button Grid.Column="2" Content="Open" Command="{Binding OpenOutputFolderCommand}" Style="{StaticResource Btn.Secondary}" Padding="12,5" Margin="10,0,0,0" />
-                            </Grid>
-                            <Grid Style="{StaticResource Row}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="Demo video folder" Style="{StaticResource FormLabel}" />
-                                <TextBox Grid.Column="1" Text="{Binding Settings.DemoVideoFolder, UpdateSourceTrigger=PropertyChanged}" />
-                                <Button Grid.Column="2" Content="Open" Command="{Binding OpenDemoVideoFolderCommand}" Style="{StaticResource Btn.Secondary}" Padding="12,5" Margin="10,0,0,0" />
                             </Grid>
                         </StackPanel>
 

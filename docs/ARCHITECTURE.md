@@ -15,7 +15,6 @@ Core contracts and domain models
     ↓
 Infrastructure adapters
     ├── Real API provider → IRealApiPayloadAdapter
-    ├── Mock provider (100 deterministic entries)
     ├── SQLite local-state repository
     ├── FFprobe service
     ├── FFmpeg processing/preview service
@@ -88,17 +87,11 @@ the mapped local video, processing status, output path, error, and the data-vers
 hashes. Each entry's state is independent; selecting a different entry reads a
 different row and mutates nothing.
 
-## 4. Mock API design
+## 4. Race data source
 
-`MockDataProvider` owns 100 deterministic records built from varied Indian names/cities and repeatable completion times.
-
-- Startup availability defaults to exactly Entry 001.
-- Automatic release uses `DemoEntryIntervalSeconds` (default 20 s).
-- Each qualifying mock poll releases at most one entry.
-- `SimulateNextEntryAsync()` releases exactly one immediately.
-- The released count is persisted in settings so restart does not reset the demo unexpectedly.
-- Every 10th demo item briefly exposes `NOT_COMPLETED` for one poll before `COMPLETED`, which exercises remote-status updates.
-- `Reset Demo Arrival` resets only the mock arrival cursor; it does not erase processing history.
+Race entries come only from the real backend API via `RealApiDataProvider`,
+polled on the configured interval. There is no demo or mock provider: what
+the operator sees is always live server data.
 
 ## 5. Real API adapter design
 
@@ -195,29 +188,35 @@ WAL mode is enabled. On restart, the UI can show local history placeholders imme
 
 ### Scoreboard
 
-A broadcast lower-third, built entirely from `drawbox` and `drawtext`:
+A three-section digital-timer plate, painted by `ScoreboardPlateRenderer`
+(Skia + HarfBuzz) into a transparent PNG and overlaid by FFmpeg:
 
 ```text
-        ╔═══════════════════════════════════════════════════════════╗  ← accent rule
-        ║ PRIMARY                 ┌──────────┐              SECONDARY║
-        ║ S கருப்புசாமி           │   CARD   │                 ரமேஷ்║
-        ║ கணியூர்                 │ 1000AAA  │        கோயம்புத்தூர்║
-        ╚═══════════════════════════════════════════════════════════╝
+        ┌──────────────────────┬────────┬──────────────────────┐
+        │ KS சிவராம்குமார்      │        │ M. முத்துக்குமார்     │
+        │ கெட்டிமல்லன்புதூர்    │  100   │ அரிமளம்               │
+        └──────────────────────┴────────┴──────────────────────┘
+                          ↑ bottom 4 %
 ```
 
-- The card number sits in a filled accent plate at dead centre. It is the entry
-  identifier, so it is the focal point, and a filled plate stays legible over
-  moving footage where plain text would not.
-- Left and right regions are symmetric about that plate, so the plate does not
-  move between entries that do and do not have a secondary player.
-- Name over location, separated by size and opacity; a micro label above each.
-- A soft drop shadow under the panel and an accent rule along its top edge.
-- When `secondaryPlayer` is null the right block and its divider are omitted
-  entirely rather than filled with a dash.
-
-Every dimension is a fraction of the probed frame — panel height `0.112·H`,
-name `0.040·H`, card `0.052·H`, side margin `0.030·W` — so 720p through 4K are
-proportional rather than special-cased.
+- LEFT rectangle: primary "name, location" on one single line. CENTRE square (side =
+  row height): cart number only, centred. RIGHT rectangle: secondary
+  "name, location" on one line. No labels anywhere; name and location share
+  one size, one weight and one treatment, separated by a comma.
+- Every box shares the Live Digital Timer language: 135deg `#0b150d → #040805`
+  gradient, thin `1.5px #14421b` border, 6px radius, `0 4px 15px rgba(0,0,0,.6)`
+  shadow with an inset green highlight, plus a crisp 1 px glass edge-light
+  inside the top border; the cart square and timer plaque carry a soft green
+  wash falling from the top edge to mark them as the focus.
+- Barlow Condensed 700 `#39ff14` throughout with a `0 0 8px rgba(57,255,20,.4)` glow;
+  names prominent, locations subordinate by size, cart larger than names.
+  Barlow Condensed has no Tamil glyphs, so Tamil clusters fall back to the bundled
+  Noto Sans Tamil while Latin/digits stay in Barlow Condensed.
+- A missing secondary player leaves its rectangle empty; the fixed geometry
+  keeps the cart square centred. Over-long single lines shrink to a floor,
+  then truncate with a clean "…" rather than wrapping or colliding.
+- Every dimension scales from a 1920-px CSS canvas, so 720p through 4K are
+  proportional rather than special-cased.
 
 ### Fitting long names
 
@@ -230,8 +229,9 @@ Tamil name does not overrun the card plate.
 ### Closing timing plaque
 
 The API's `timings` (seconds, e.g. `22.5`) is formatted by `TimingFormatter`
-into `00:22.50` — never shown as a bare number — and drawn in a centred plaque
-with the same accent rule, enabled only for the final N seconds via
+into `00:22.50` — never shown as a bare number — and drawn in a centred
+digital-timer plaque with the same gradient, border, radius, shadow and green
+glow as the scoreboard, enabled only for the final N seconds via
 `enable='between(t,duration-N,duration)'`.
 
 ### Encoding
@@ -363,7 +363,7 @@ API polling continues while FFmpeg is running. An API outage does not cancel a l
 ## 11. Error / recovery strategy
 
 - **API offline / timeout:** keep last in-memory data, show OFFLINE, preserve last-success time, retry next interval.
-- **Unknown real JSON contract:** REAL API mode reports the adapter configuration error; Demo Mode remains fully usable.
+- **Unknown real JSON contract:** report the adapter configuration error; entries keep their last known state until the backend responds correctly.
 - **Duplicate entry:** collapse by stable EntryId.
 - **Remote entry changes:** update UI; if overlay-affecting data changed after completion, mark OUTDATED.
 - **Mapped file removed:** mark VIDEO NOT FOUND.
@@ -438,4 +438,4 @@ Cancellation during processing → `Cancelled`, no upload. Failures are returned
 
 ### Backend client
 
-`RaceBackendClient` logs in with the configured credentials, caches the bearer token, and on a 401 logs in again and repeats the identical request once (requests are rebuilt from a factory, so upload bodies are re-streamed from the file). Uploads use `ProgressFileContent`, which streams the file in 256 KB chunks and reports bytes written. In Demo mode `DemoMediaPublisher` reads the file for honest progress and returns a `demo.invalid` link without any network access.
+`RaceBackendClient` logs in with the configured credentials, caches the bearer token, and on a 401 logs in again and repeats the identical request once (requests are rebuilt from a factory, so upload bodies are re-streamed from the file). Uploads use `ProgressFileContent`, which streams the file in 256 KB chunks and reports bytes written.

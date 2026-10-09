@@ -233,8 +233,7 @@ public sealed class SqliteRepositoryTests
         var settings = await repo.LoadSettingsAsync();
 
         Assert.Equal(1, await repo.CountEntryStatesAsync("AAA"));
-        Assert.Equal(DataSourceMode.RealApi, settings!.DataSourceMode);
-        Assert.Null(settings.SelectedRaceId);
+        Assert.Null(settings!.SelectedRaceId);
         Assert.Contains("{raceId}", settings.Players200UrlTemplate);
     });
 

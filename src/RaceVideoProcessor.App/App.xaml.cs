@@ -54,14 +54,11 @@ public partial class App : Application
             services.AddSingleton(new HttpClient { Timeout = Timeout.InfiniteTimeSpan });
             services.AddSingleton<RaceBackendClient>();
             services.AddSingleton<IBackendDiagnostics>(sp => sp.GetRequiredService<RaceBackendClient>());
-            services.AddSingleton<DemoMediaPublisher>();
-            services.AddSingleton<IMediaPublisher, MediaPublisherRouter>();
+            services.AddSingleton<IMediaPublisher>(sp => sp.GetRequiredService<RaceBackendClient>());
 
-            services.AddSingleton<MockDataProvider>();
-            services.AddSingleton<IDemoEntryController>(sp => sp.GetRequiredService<MockDataProvider>());
             services.AddSingleton<IRealApiPayloadAdapter, RaceApiPayloadAdapter>();
             services.AddSingleton<RealApiDataProvider>();
-            services.AddSingleton<IEntryProviderRouter, EntryProviderRouter>();
+            services.AddSingleton<IEntryDataProvider>(sp => sp.GetRequiredService<RealApiDataProvider>());
 
             services.AddSingleton<EntrySyncService>();
             services.AddSingleton<PollingCoordinator>();

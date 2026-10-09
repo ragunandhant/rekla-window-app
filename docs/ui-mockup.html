@@ -1,5 +1,5 @@
 <title>Race Video Processor UI</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap">
 <style>
   /* ===========================================================
      Mockup of the rebuilt operator screen.
@@ -118,32 +118,33 @@
   .statusbar{display:flex;align-items:center;gap:24px;height:34px;padding:0 18px;
              border-top:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:13px}
 
-  /* ---------- scoreboard preview ---------- */
+  /* ---------- scoreboard preview ----------
+     Three-section digital-timer scoreboard. This section is the visual
+     specification for ScoreboardPlateRenderer.cs — same tokens as the Live
+     Digital Timer HTML: 135deg #0b150d→#040805 gradient, 1.5px #14421b
+     border, 6px radius, outer + inset shadow, Barlow Condensed #39ff14 "name, location"
+     centred in each side, fixed-size cart in an expanding centre panel, the
+     final-seconds timer replacing the cart in place. No labels. */
   .scorewrap{margin-top:26px}
   .frame{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;
          border:1px solid var(--border-strong);
          background:linear-gradient(160deg,#6E7F53 0%,#8A9A63 42%,#C2B184 72%,#A8935F 100%)}
   .frame .hint{position:absolute;top:14px;left:16px;color:rgba(255,255,255,.82);font-size:13px;
                text-shadow:0 1px 3px rgba(0,0,0,.6)}
-  .lower{position:absolute;left:3%;right:3%;bottom:4.2%;height:11.2%;min-height:64px;
-         background:rgba(10,16,32,.88);box-shadow:0 4px 14px rgba(0,0,0,.4);display:grid;
-         grid-template-columns:1fr 22% 1fr;align-items:stretch}
-  .lower::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:#E3B23C}
-  .lower .side{padding:10px 18px;display:flex;flex-direction:column;justify-content:center;min-width:0}
-  .lower .side.r{align-items:flex-end;text-align:right}
-  .lower .mini{color:#E3B23C;font-size:11px;font-weight:700;letter-spacing:.08em}
-  .lower .nm{color:#fff;font-size:20px;font-weight:600;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .lower .lc{color:rgba(255,255,255,.74);font-size:14px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .plate{background:#E3B23C;margin:8px 10px;display:flex;flex-direction:column;
-         align-items:center;justify-content:center;border-radius:2px}
-  .plate .mini{color:rgba(10,16,32,.72);font-size:11px;font-weight:700;letter-spacing:.08em}
-  .plate .no{color:#0A1020;font-size:26px;font-weight:700;line-height:1.1}
-  .divider{position:absolute;top:22%;height:56%;width:1px;background:rgba(255,255,255,.18)}
-  .plaque{position:absolute;left:33%;right:33%;top:41%;background:rgba(10,16,32,.88);
-          text-align:center;padding:14px 10px 18px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-  .plaque::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:#E3B23C}
-  .plaque .mini{color:#E3B23C;font-size:11px;font-weight:700;letter-spacing:.08em}
-  .plaque .t{color:#fff;font-size:38px;font-weight:700;line-height:1.15}
+  .drow{position:absolute;left:2.5%;right:2.5%;bottom:4%;display:grid;
+        grid-template-columns:1fr auto 1fr;gap:12px;align-items:stretch}
+  .dbox{background:linear-gradient(135deg,#0b150d 0%,#040805 100%);
+        border:1.5px solid #14421b;border-radius:6px;padding:10px 18px;
+        box-shadow:0 4px 15px rgba(0,0,0,.6),inset 0 1px 2px rgba(57,255,20,.1);
+        font-family:"Barlow Condensed","Noto Sans Tamil",sans-serif;
+        display:flex;flex-direction:column;justify-content:center;align-items:center;
+        text-align:center;min-width:0}
+  .dbox .nm{color:#39ff14;font-size:22px;font-weight:900;letter-spacing:.5px;
+            text-shadow:0 0 8px rgba(57,255,20,.4);line-height:1;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .dbox.cart{padding:10px 12px;min-width:88px}
+  .dbox.cart .no{color:#39ff14;font-size:30px;font-weight:700;letter-spacing:0;
+                 text-shadow:0 0 8px rgba(57,255,20,.4);line-height:1}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
   .cap{color:var(--muted);font-size:13px;margin:8px 0 0}
 
@@ -321,57 +322,38 @@
   <div class="scorewrap">
     <p class="note" style="margin-bottom:10px">
       <b>Scoreboard</b>
-      <span>What FFmpeg burns into the video — approximated here at 16:9.</span>
+      <span>What FFmpeg burns into the video — three-section digital-timer plate at 16:9. Centred Barlow Condensed green text; fixed-size cart in an expanding centre panel.</span>
     </p>
 
     <div class="two">
       <div>
         <div class="frame">
-          <div class="hint">during the race</div>
-          <div class="lower">
-            <div class="divider" style="left:39%"></div>
-            <div class="divider" style="left:61%"></div>
-            <div class="side">
-              <div class="mini">PRIMARY</div>
-              <div class="nm">ராமசாமி</div>
-              <div class="lc">கோயம்புத்தூர்</div>
+          <div class="hint">during the race · two players</div>
+          <div class="drow">
+            <div class="dbox">
+              <div class="nm">KS சிவராம்குமார், கெட்டிமல்லன்புதூர்</div>
             </div>
-            <div class="plate">
-              <div class="mini">CARD</div>
-              <div class="no">1000AAB</div>
-            </div>
-            <div class="side r">
-              <div class="mini">SECONDARY</div>
-              <div class="nm">ரமேஷ்</div>
-              <div class="lc">மதுரை</div>
+            <div class="dbox cart"><div class="no">100</div></div>
+            <div class="dbox">
+              <div class="nm">M. முத்துக்குமார், அரிமளம்</div>
             </div>
           </div>
         </div>
-        <p class="cap">Primary left, card plate centred, secondary right.</p>
+        <p class="cap">Left: centred "name, location". Centre: fixed-size cart (panel widens for longer carts). Right: centred "name, location". No labels.</p>
       </div>
 
       <div>
         <div class="frame">
-          <div class="hint">final 4 seconds</div>
-          <div class="plaque">
-            <div class="mini">TIMING</div>
-            <div class="t">00:22.50</div>
-          </div>
-          <div class="lower">
-            <div class="divider" style="left:39%"></div>
-            <div class="side">
-              <div class="mini">PRIMARY</div>
-              <div class="nm">S கருப்புசாமி</div>
-              <div class="lc">கணியூர்</div>
+          <div class="hint">final 4 seconds · timer replaces the cart in place</div>
+          <div class="drow">
+            <div class="dbox">
+              <div class="nm">S கருப்புசாமி, கணியூர்</div>
             </div>
-            <div class="plate">
-              <div class="mini">CARD</div>
-              <div class="no">1000AAA</div>
-            </div>
-            <div class="side r"></div>
+            <div class="dbox cart"><div class="no">00:22.50</div></div>
+            <div class="dbox"></div>
           </div>
         </div>
-        <p class="cap">No secondary player: the right block and its divider are omitted, and the plate stays put.</p>
+        <p class="cap">No secondary player: its rectangle stays empty. The timer sits exactly where the cart was — never mid-video.</p>
       </div>
     </div>
   </div>

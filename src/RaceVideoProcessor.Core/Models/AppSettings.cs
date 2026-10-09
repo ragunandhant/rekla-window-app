@@ -18,8 +18,6 @@ public sealed class AppSettings
 
     public int SettingsVersion { get; set; }
 
-    public DataSourceMode DataSourceMode { get; set; } = DataSourceMode.Demo;
-
     // ---- Backend -----------------------------------------------------------
     // Race IDs are deliberately absent: they belong to the saved races, and the
     // selected race supplies one Race ID for both categories.
@@ -76,18 +74,12 @@ public sealed class AppSettings
         => category == RaceCategory.Meter300 ? Assign300UrlTemplate : Assign200UrlTemplate;
 
     public int PollingIntervalSeconds { get; set; } = 20;
-    public int DemoEntryIntervalSeconds { get; set; } = 20;
-    public bool DemoAutoAdvance { get; set; } = true;
-    public int DemoReleasedCount { get; set; } = 1;
 
     public string InputVideoFolder { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "RaceVideos");
 
     public string OutputVideoFolder { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "RaceVideos", "Processed");
-
-    public string DemoVideoFolder { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "RaceVideoProcessor", "DemoVideos");
 
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
@@ -132,8 +124,6 @@ public sealed class AppSettings
         PollingIntervalSeconds = PollingIntervalSeconds is 10 or 20 or 30 or 60
             ? PollingIntervalSeconds
             : 20;
-        DemoEntryIntervalSeconds = Math.Clamp(DemoEntryIntervalSeconds, 1, 3600);
-        DemoReleasedCount = Math.Clamp(DemoReleasedCount, 1, 100);
         CompletionTimeDisplaySeconds = Math.Clamp(CompletionTimeDisplaySeconds, 0.5, 30.0);
         FileSizeTolerancePercent = Math.Clamp(double.IsFinite(FileSizeTolerancePercent) ? FileSizeTolerancePercent : 10, 1, 100);
         UiZoom = ZoomLevels.OrderBy(level => Math.Abs(level - (double.IsFinite(UiZoom) ? UiZoom : 1.0))).First();

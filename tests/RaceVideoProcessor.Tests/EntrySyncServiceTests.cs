@@ -12,7 +12,7 @@ public sealed class EntrySyncServiceTests
     public async Task DuplicateApiEntriesBecomeOneSnapshot()
     {
         var provider = new StaticProvider([Entry("001"), Entry("001")]);
-        var service = new EntrySyncService(new StaticRouter(provider), new InMemoryRepository(), new TestLog());
+        var service = new EntrySyncService(provider, new InMemoryRepository(), new TestLog());
         var snapshot = await service.SynchronizeAsync(TestScopes.RaceA200, CancellationToken.None);
         Assert.Single(snapshot.Entries);
     }
@@ -31,7 +31,7 @@ public sealed class EntrySyncServiceTests
             LastProcessedDataHash = OverlayHashCalculator.Calculate(original),
             LastSeenDataHash = OverlayHashCalculator.Calculate(original)
         };
-        var service = new EntrySyncService(new StaticRouter(new StaticProvider([changed])), repo, new TestLog());
+        var service = new EntrySyncService(new StaticProvider([changed]), repo, new TestLog());
 
         var snapshot = await service.SynchronizeAsync(TestScopes.RaceA200, CancellationToken.None);
         Assert.Equal(LocalProcessingStatus.Outdated, snapshot.Entries[0].LocalState.ProcessingStatus);
@@ -48,7 +48,7 @@ public sealed class EntrySyncServiceTests
         repo.States[InMemoryRepository.Key(TestScopes.RaceB200, "001")] = other;
 
         var provider = new StaticProvider([Entry("001", "100")]);
-        var service = new EntrySyncService(new StaticRouter(provider), repo, new TestLog());
+        var service = new EntrySyncService(provider, repo, new TestLog());
 
         var snapshot = await service.SynchronizeAsync(TestScopes.RaceA200, CancellationToken.None);
 
@@ -80,7 +80,7 @@ public sealed class EntrySyncServiceTests
         state.LastProcessedDataHash = OverlayHashCalculator.Calculate(TestEntries.Create(entryId: "marker-9", card: "999"));
         repo.States[InMemoryRepository.Key(TestScopes.RaceA200, "marker-9")] = state;
 
-        var service = new EntrySyncService(new StaticRouter(new StaticProvider([entry])), repo, new TestLog());
+        var service = new EntrySyncService(new StaticProvider([entry]), repo, new TestLog());
         var snapshot = await service.SynchronizeAsync(TestScopes.RaceA200, CancellationToken.None);
         var merged = snapshot.Entries[0].LocalState;
 

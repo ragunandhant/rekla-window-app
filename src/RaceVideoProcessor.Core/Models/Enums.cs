@@ -1,11 +1,5 @@
 namespace RaceVideoProcessor.Core.Models;
 
-public enum DataSourceMode
-{
-    Demo,
-    RealApi
-}
-
 public enum RemoteExtractionStatus
 {
     Unknown,

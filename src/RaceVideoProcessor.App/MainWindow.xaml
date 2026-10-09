@@ -133,7 +133,7 @@
                     <Ellipse Style="{StaticResource Dot}" Width="8" Height="8"
                              Fill="{Binding IsApiConnected, Converter={StaticResource ConnectedBrush}}" />
                     <TextBlock Style="{StaticResource Txt.Muted}" VerticalAlignment="Center">
-                        <Run Text="{Binding ModeLabel, Mode=OneWay}" /> <Run Text="·" /> <Run Text="{Binding ApiStatusText, Mode=OneWay}" />
+                        <Run Text="{Binding ApiStatusText, Mode=OneWay}" />
                     </TextBlock>
                     <TextBlock Text="  |  SQLite  |  " Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding EncoderDisplay}" Style="{StaticResource Txt.Muted}" VerticalAlignment="Center" />

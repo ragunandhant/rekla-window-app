@@ -30,7 +30,6 @@ namespace RaceVideoProcessor.App.ViewModels;
 public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ILocalStateRepository _repository;
-    private readonly IDemoEntryController _demoController;
     private readonly PollingCoordinator _polling;
     private readonly EntryWorkflowService _workflow;
     private readonly IEncoderCapabilityService _encoderCapability;
@@ -82,7 +81,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public MainViewModel(
         AppSettings settings,
         ILocalStateRepository repository,
-        IDemoEntryController demoController,
         PollingCoordinator polling,
         EntryWorkflowService workflow,
         IEncoderCapabilityService encoderCapability,
@@ -93,7 +91,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     {
         Settings = settings;
         _repository = repository;
-        _demoController = demoController;
         _polling = polling;
         _workflow = workflow;
         _encoderCapability = encoderCapability;
@@ -113,9 +110,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         OpenOutputCommand = new RelayCommand(OpenOutput, () => OpenOutputBlockReason.Length == 0);
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolder(Settings.OutputVideoFolder));
         OpenInputFolderCommand = new RelayCommand(() => OpenFolder(Settings.InputVideoFolder));
-        OpenDemoVideoFolderCommand = new RelayCommand(() => OpenFolder(Settings.DemoVideoFolder));
-        SimulateNextEntryCommand = new AsyncRelayCommand(SimulateNextEntryAsync, () => IsDemoMode && HasActiveRace);
-        ResetDemoCommand = new AsyncRelayCommand(ResetDemoAsync, () => IsDemoMode);
         PollNowCommand = new AsyncRelayCommand(() => _polling.PollNowAsync(_lifetimeCts.Token), () => HasActiveRace);
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
         TestLoginCommand = new AsyncRelayCommand(TestLoginAsync);
@@ -176,7 +170,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     /// <summary>What the Logs page shows after the level filter and search.</summary>
     public ObservableCollection<LogEntry> VisibleLogs { get; } = [];
 
-    public IReadOnlyList<DataSourceMode> DataSourceModes { get; } = Enum.GetValues<DataSourceMode>();
     public IReadOnlyList<int> PollingIntervals { get; } = [10, 20, 30, 60];
     public IReadOnlyList<EncoderPreference> EncoderPreferences { get; } = Enum.GetValues<EncoderPreference>();
     public IReadOnlyList<EncodingQuality> EncodingQualities { get; } = Enum.GetValues<EncodingQuality>();
@@ -190,9 +183,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public ICommand OpenOutputCommand { get; }
     public ICommand OpenOutputFolderCommand { get; }
     public ICommand OpenInputFolderCommand { get; }
-    public ICommand OpenDemoVideoFolderCommand { get; }
-    public ICommand SimulateNextEntryCommand { get; }
-    public ICommand ResetDemoCommand { get; }
     public ICommand PollNowCommand { get; }
     public ICommand SaveSettingsCommand { get; }
     public ICommand TestLoginCommand { get; }
@@ -398,12 +388,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string NextSyncText { get => _nextSyncText; private set => SetProperty(ref _nextSyncText, value); }
     public bool IsApiConnected { get => _isApiConnected; private set => SetProperty(ref _isApiConnected, value); }
     public string EncoderDisplay { get => _encoderDisplay; private set => SetProperty(ref _encoderDisplay, value); }
-    public bool IsDemoMode => Settings.DataSourceMode == DataSourceMode.Demo;
-    public string ModeLabel => IsDemoMode ? "DEMO" : "REAL API";
 
     /// <summary>The scoreboard's own typefaces, bundled with the application.</summary>
     public string ScoreboardFontText => RaceVideoProcessor.Infrastructure.Video.ScoreboardFonts.Bundled() is not null
-        ? "Orbitron 700 and Noto Sans Tamil 500, bundled — the fonts of the scoreboard design"
+        ? "Barlow Condensed 700 and Noto Sans Tamil 500, bundled — the fonts of the scoreboard design"
         : "Missing from the installation — the fallback font below is used. Reinstall to restore them.";
 
     public string FontDisplay { get; private set; } = "Resolving…";
@@ -618,8 +606,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
         await RestoreSelectedRaceAsync();
         await _polling.StartAsync(_lifetimeCts.Token);
-        OnPropertyChanged(nameof(ModeLabel));
-        OnPropertyChanged(nameof(IsDemoMode));
     }
 
     /// <summary>
@@ -1303,26 +1289,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         return cleaned.Length == 0 ? "race" : cleaned;
     }
 
-    // ---- Demo --------------------------------------------------------------
-
-    private async Task SimulateNextEntryAsync()
-    {
-        await _demoController.SimulateNextEntryAsync(_lifetimeCts.Token);
-        _log.Info($"Demo: released card {_demoController.LastReleasedCardNumber}.");
-        await _polling.PollNowAsync(_lifetimeCts.Token);
-    }
-
-    private async Task ResetDemoAsync()
-    {
-        var answer = MessageBox.Show(
-            "Reset the demo arrival cursor to the first card? Local processing history is kept.",
-            "Reset demo", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.Yes)
-            return;
-        await _demoController.ResetAsync(_lifetimeCts.Token);
-        await _polling.PollNowAsync(_lifetimeCts.Token);
-    }
-
     // ---- Output and folders ------------------------------------------------
 
     private void OpenOutput()
@@ -1366,7 +1332,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         Settings.Normalize();
         Directory.CreateDirectory(Settings.InputVideoFolder);
         Directory.CreateDirectory(Settings.OutputVideoFolder);
-        Directory.CreateDirectory(Settings.DemoVideoFolder);
         await _repository.SaveSettingsAsync(Settings, _lifetimeCts.Token);
 
         ResolveFont();
@@ -1375,8 +1340,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
         // Normalize() clamps values, so re-notify to show what was actually stored.
         OnPropertyChanged(nameof(Settings));
-        OnPropertyChanged(nameof(IsDemoMode));
-        OnPropertyChanged(nameof(ModeLabel));
         RefreshWorkContext();
         _log.Info("Settings saved.");
         if (HasActiveRace)
@@ -1386,11 +1349,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
     private async Task TestLoginAsync()
     {
-        if (IsDemoMode)
-        {
-            ShowBanner(BannerKind.Info, "The demo provider is active; it needs no login. Switch the data source to RealApi to test.");
-            return;
-        }
         var result = await _backendDiagnostics.TestLoginAsync(_lifetimeCts.Token);
         ShowBanner(result.Success ? BannerKind.Success : BannerKind.Error, result.Success ? result.Detail : "Authentication Failed: " + result.Detail);
     }

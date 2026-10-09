@@ -8,7 +8,7 @@ public sealed class PollingCoordinator : IAsyncDisposable
 {
     private readonly AppSettings _settings;
     private readonly EntrySyncService _syncService;
-    private readonly IEntryProviderRouter _router;
+    private readonly IEntryDataProvider _provider;
     private readonly ILocalStateRepository _repository;
     private readonly IAppLog _log;
     private readonly SemaphoreSlim _pollGate = new(1, 1);
@@ -33,13 +33,13 @@ public sealed class PollingCoordinator : IAsyncDisposable
     public PollingCoordinator(
         AppSettings settings,
         EntrySyncService syncService,
-        IEntryProviderRouter router,
+        IEntryDataProvider provider,
         ILocalStateRepository repository,
         IAppLog log)
     {
         _settings = settings;
         _syncService = syncService;
-        _router = router;
+        _provider = provider;
         _repository = repository;
         _log = log;
     }
@@ -83,7 +83,7 @@ public sealed class PollingCoordinator : IAsyncDisposable
             return;
 
         var attempt = DateTimeOffset.UtcNow;
-        var providerName = _router.Current.Name;
+        var providerName = _provider.Name;
         var scope = _scope;
         if (scope is null)
         {
