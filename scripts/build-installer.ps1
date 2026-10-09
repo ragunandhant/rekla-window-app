@@ -88,9 +88,12 @@ function Ensure-WingetPackage([string]$Id, [string]$DisplayName) {
         throw "$DisplayName is required, and winget was not found. Install $DisplayName manually, then rerun BUILD_INSTALLER.bat."
     }
     Write-Host "$DisplayName not found. Installing it with winget..." -ForegroundColor Yellow
-    & winget install --id $Id --exact --silent --accept-package-agreements --accept-source-agreements
+    # Capture winget's own stdout: it must not leak into this function's output
+    # stream, otherwise callers that do `$x = Ensure-...` receive the chatter
+    # mixed with their real return value.
+    $wingetOutput = & winget install --id $Id --exact --silent --accept-package-agreements --accept-source-agreements 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "winget could not install $DisplayName (exit code $LASTEXITCODE)."
+        throw "winget could not install $DisplayName (exit code $LASTEXITCODE). Output:`n$($wingetOutput -join "`n")"
     }
 }
 
@@ -154,6 +157,13 @@ Try one of these paths in File Explorer:
 
 If Inno Setup is present, close this window and run BUILD_INSTALLER.bat again.
 "@
+    }
+
+    # Defensive: only a single existing path may leave this function. If any
+    # stray output ever got mixed in, keep the last real path.
+    $iscc = @($iscc | Where-Object { $_ -and (Test-Path $_ -PathType Leaf) }) | Select-Object -Last 1
+    if (-not $iscc) {
+        throw "Inno Setup 6 path resolution failed unexpectedly. Close this window and run BUILD_INSTALLER.bat again."
     }
 
     Write-Host "Using Inno Setup compiler: $iscc" -ForegroundColor DarkGray
