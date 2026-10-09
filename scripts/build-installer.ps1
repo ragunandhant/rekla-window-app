@@ -94,23 +94,42 @@ function Ensure-WingetPackage([string]$Id, [string]$DisplayName) {
     }
 }
 
-function Ensure-Dotnet8 {
-    $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
-    if (-not $dotnet) {
-        Ensure-WingetPackage "Microsoft.DotNet.SDK.8" ".NET 8 SDK"
-        $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
-        if (-not $dotnet) {
-            $candidate = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
-            if (Test-Path $candidate) { $dotnet = Get-Item $candidate }
-        }
-    }
-    if (-not $dotnet) { throw ".NET SDK was installed but dotnet.exe could not be located. Open a new terminal and run BUILD_INSTALLER.bat again." }
+function Get-DotnetPath {
+    # dotnet.exe may exist but not be on this process's PATH (fresh install),
+    # so check PATH first and the default install folder second. Always returns
+    # a plain path string (Get-Item results have .FullName, not .Source).
+    $cmd = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
+    $candidate = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
+    if ($candidate -and (Test-Path $candidate)) { return $candidate }
+    return $null
+}
 
-    $major = (& $dotnet.Source --version).Split('.')[0]
-    if ([int]$major -lt 8) {
+function Get-DotnetMajorVersion([string]$DotnetPath) {
+    # Returns 0 when the SDK is missing or unusable. A runtime-only install
+    # prints the aka.ms/dotnet/sdk-not-found message to STDERR with empty
+    # STDOUT, which previously crashed the caller with a null .Split().
+    $output = & $DotnetPath --version 2>&1
+    if ($LASTEXITCODE -ne 0 -or -not $output) { return 0 }
+    $first = ([string]$output).Split("`n")[0].Trim().Split('.')[0]
+    $parsed = 0
+    if ([int]::TryParse($first, [ref]$parsed)) { return $parsed }
+    return 0
+}
+
+function Ensure-Dotnet8 {
+    $dotnetPath = Get-DotnetPath
+    if (-not $dotnetPath -or (Get-DotnetMajorVersion $dotnetPath) -lt 8) {
+        # Missing, runtime-only, or older than 8: install the .NET 8 SDK, then
+        # look again (a fresh install may still not be on this process's PATH).
         Ensure-WingetPackage "Microsoft.DotNet.SDK.8" ".NET 8 SDK"
+        $dotnetPath = Get-DotnetPath
     }
-    return $dotnet.Source
+    if (-not $dotnetPath) { throw ".NET SDK was installed but dotnet.exe could not be located. Open a new terminal and run BUILD_INSTALLER.bat again." }
+    if ((Get-DotnetMajorVersion $dotnetPath) -lt 8) {
+        throw "dotnet.exe at $dotnetPath does not report a .NET 8 (or newer) SDK. Install the .NET 8 SDK from https://dotnet.microsoft.com/download and run BUILD_INSTALLER.bat again."
+    }
+    return $dotnetPath
 }
 
 function Ensure-InnoSetup {
